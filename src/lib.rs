@@ -10,6 +10,7 @@ pub mod daemon;
 #[cfg(feature = "tui")]
 pub mod dialogs;
 pub mod gateway;
+pub mod gmail;
 pub mod memory;
 pub mod messengers;
 #[cfg(feature = "tui")]

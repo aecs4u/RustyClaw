@@ -74,6 +74,9 @@ pub struct Config {
     /// Sandbox configuration for agent isolation.
     #[serde(default)]
     pub sandbox: SandboxConfig,
+    /// Gmail integration configuration (optional).
+    #[serde(default)]
+    pub gmail: crate::gmail::GmailConfig,
     /// ClawHub registry URL (default: `https://registry.clawhub.dev/api/v1`).
     #[serde(default)]
     pub clawhub_url: Option<String>,
@@ -156,6 +159,7 @@ impl Default for Config {
             message_spacing: Self::default_message_spacing(),
             tab_width: Self::default_tab_width(),
             sandbox: SandboxConfig::default(),
+            gmail: crate::gmail::GmailConfig::default(),
             clawhub_url: None,
             clawhub_token: None,
             system_prompt: None,
