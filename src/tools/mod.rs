@@ -61,7 +61,7 @@ use devices::{exec_nodes, exec_canvas};
 use browser::exec_browser;
 
 // Skill operations
-use skills_tools::{exec_skill_list, exec_skill_search, exec_skill_install, exec_skill_info, exec_skill_enable, exec_skill_link_secret};
+use skills_tools::{exec_skill_list, exec_skill_search, exec_skill_install, exec_skill_info, exec_skill_enable, exec_skill_link_secret, exec_skill_publish, exec_skill_remove, exec_skill_update};
 
 // Secrets operations
 use secrets_tools::exec_secrets_stub;
@@ -134,6 +134,9 @@ pub fn all_tools() -> Vec<&'static ToolDef> {
         &SKILL_INFO,
         &SKILL_ENABLE,
         &SKILL_LINK_SECRET,
+        &SKILL_PUBLISH,
+        &SKILL_REMOVE,
+        &SKILL_UPDATE,
     ]
 }
 
@@ -468,6 +471,31 @@ pub static SKILL_LINK_SECRET: ToolDef = ToolDef {
     execute: exec_skill_link_secret,
 };
 
+pub static SKILL_PUBLISH: ToolDef = ToolDef {
+    name: "skill_publish",
+    description: "Publish a local skill to the ClawHub registry so others can install it. \
+                  Requires a ClawHub token (set clawhub_token in config). The skill must \
+                  have a SKILL.md with valid frontmatter including name, description, and version.",
+    parameters: vec![],
+    execute: exec_skill_publish,
+};
+
+pub static SKILL_REMOVE: ToolDef = ToolDef {
+    name: "skill_remove",
+    description: "Remove an installed skill by name. For registry-installed skills, this also \
+                  deletes the skill files from disk.",
+    parameters: vec![],
+    execute: exec_skill_remove,
+};
+
+pub static SKILL_UPDATE: ToolDef = ToolDef {
+    name: "skill_update",
+    description: "Update a registry-installed skill to the latest version from ClawHub. \
+                  Use 'all' as the name to update all registry skills at once.",
+    parameters: vec![],
+    execute: exec_skill_update,
+};
+
 
 // Re-export parameter functions from params module
 pub use params::*;
@@ -541,6 +569,9 @@ fn resolve_params(tool: &ToolDef) -> Vec<ToolParam> {
         "skill_info" => skill_info_params(),
         "skill_enable" => skill_enable_params(),
         "skill_link_secret" => skill_link_secret_params(),
+        "skill_publish" => skill_publish_params(),
+        "skill_remove" => skill_remove_params(),
+        "skill_update" => skill_update_params(),
         _ => vec![],
     }
 }

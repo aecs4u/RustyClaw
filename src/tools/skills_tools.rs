@@ -1,4 +1,7 @@
-//! Skill tools: skill_list, skill_search, skill_install, skill_info, skill_enable, skill_link_secret.
+//! Skill tools: list, search, install, info, enable, link_secret, publish, remove, update.
+//!
+//! These are gateway-intercepted tools. In standalone mode they provide
+//! helpful guidance. In gateway mode the gateway uses its SkillManager.
 
 use serde_json::Value;
 use std::path::Path;
@@ -16,13 +19,10 @@ pub fn exec_skill_search(args: &Value, _workspace_dir: &Path) -> Result<String, 
         .and_then(|v| v.as_str())
         .ok_or_else(|| "Missing required parameter: query".to_string())?;
 
-    // Point users to the clawhub CLI
     Ok(format!(
         "To search for skills matching '{}':\n\n\
-         1. Install the ClawHub CLI: npm i -g clawhub\n\
-         2. Search: clawhub search \"{}\"\n\
-         3. Install: clawhub install <skill-name>\n\n\
-         Or browse skills at: https://clawhub.com",
+         Use the CLI: rustyclaw skills search \"{}\"\n\
+         Or browse skills at: https://clawhub.ai",
         query, query,
     ))
 }
@@ -36,8 +36,7 @@ pub fn exec_skill_install(args: &Value, _workspace_dir: &Path) -> Result<String,
 
     Ok(format!(
         "To install the '{}' skill:\n\n\
-         1. Install the ClawHub CLI (if not already): npm i -g clawhub\n\
-         2. Install the skill: clawhub install {}\n\n\
+         rustyclaw skills install {}\n\n\
          The skill will be installed to your workspace/skills directory.",
         name, name,
     ))
@@ -90,4 +89,47 @@ pub fn exec_skill_link_secret(args: &Value, _workspace_dir: &Path) -> Result<Str
     }
 
     Err("Skill secret linking requires gateway connection.".into())
+}
+
+/// Publish a local skill to the ClawHub registry.
+pub fn exec_skill_publish(args: &Value, _workspace_dir: &Path) -> Result<String, String> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing required parameter: name".to_string())?;
+
+    Ok(format!(
+        "To publish skill '{}':\n\n\
+         rustyclaw skills publish {}\n\n\
+         Requires clawhub_token set in config.toml.",
+        name, name,
+    ))
+}
+
+/// Remove an installed skill.
+pub fn exec_skill_remove(args: &Value, _workspace_dir: &Path) -> Result<String, String> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing required parameter: name".to_string())?;
+
+    Ok(format!(
+        "To remove skill '{}':\n\n\
+         rustyclaw skills remove {}",
+        name, name,
+    ))
+}
+
+/// Update a registry-installed skill to the latest version.
+pub fn exec_skill_update(args: &Value, _workspace_dir: &Path) -> Result<String, String> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing required parameter: name".to_string())?;
+
+    Ok(format!(
+        "To update skill '{}':\n\n\
+         rustyclaw skills update {}",
+        name, name,
+    ))
 }

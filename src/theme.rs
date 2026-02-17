@@ -169,6 +169,16 @@ pub fn icon_muted(label: &str) -> String {
     format!("{} {}", muted("·"), muted(label))
 }
 
+/// Text in warning (yellow) colour.
+pub fn warning_text(text: &str) -> String {
+    warn(text)
+}
+
+/// Bullet point (muted •).
+pub fn bullet() -> String {
+    muted("•")
+}
+
 // ── Labelled key : value ────────────────────────────────────────────────────
 
 /// Format "  Label  : value" with the label dimmed and the value in accent.

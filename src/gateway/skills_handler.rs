@@ -17,6 +17,9 @@ pub async fn execute_skill_tool(
         "skill_info" => exec_gw_skill_info(args, skill_mgr).await,
         "skill_enable" => exec_gw_skill_enable(args, skill_mgr).await,
         "skill_link_secret" => exec_gw_skill_link_secret(args, skill_mgr).await,
+        "skill_publish" => exec_gw_skill_publish(args, skill_mgr).await,
+        "skill_remove" => exec_gw_skill_remove(args, skill_mgr).await,
+        "skill_update" => exec_gw_skill_update(args, skill_mgr).await,
         _ => Err(format!("Unknown skill tool: {}", name)),
     }
 }
@@ -177,6 +180,52 @@ pub async fn exec_gw_skill_enable(
 
     let state = if enabled { "enabled" } else { "disabled" };
     Ok(format!("Skill '{}' is now {}.", name, state))
+}
+
+/// Publish a local skill to the ClawHub registry.
+pub async fn exec_gw_skill_publish(
+    args: &serde_json::Value,
+    skill_mgr: &SharedSkillManager,
+) -> Result<String, String> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing required parameter: name".to_string())?;
+
+    let mgr = skill_mgr.lock().await;
+    mgr.publish_to_registry(name).map_err(|e| e.to_string())
+}
+
+/// Remove an installed skill.
+pub async fn exec_gw_skill_remove(
+    args: &serde_json::Value,
+    skill_mgr: &SharedSkillManager,
+) -> Result<String, String> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing required parameter: name".to_string())?;
+
+    let mut mgr = skill_mgr.lock().await;
+    mgr.remove_skill(name).map_err(|e| e.to_string())?;
+    Ok(format!("Skill '{}' removed.", name))
+}
+
+/// Update a registry-installed skill to the latest version.
+pub async fn exec_gw_skill_update(
+    args: &serde_json::Value,
+    skill_mgr: &SharedSkillManager,
+) -> Result<String, String> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing required parameter: name".to_string())?;
+
+    let mut mgr = skill_mgr.lock().await;
+    match mgr.update_skill(name).map_err(|e| e.to_string())? {
+        true => Ok(format!("Skill '{}' updated to latest version.", name)),
+        false => Ok(format!("Skill '{}' is already up to date.", name)),
+    }
 }
 
 /// Link or unlink a vault credential to a skill.

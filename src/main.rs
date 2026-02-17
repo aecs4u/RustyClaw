@@ -417,8 +417,50 @@ enum SkillsCommands {
         #[arg(value_name = "NAME")]
         name: String,
     },
-    /// Check skills for issues
+    /// Check skills for gate issues (missing binaries, env vars)
     Check,
+    /// Search the ClawHub registry
+    Search {
+        /// Search query
+        #[arg(value_name = "QUERY")]
+        query: String,
+    },
+    /// Install a skill from the ClawHub registry
+    Install {
+        /// Skill name (slug)
+        #[arg(value_name = "NAME")]
+        name: String,
+        /// Specific version to install (default: latest)
+        #[arg(long, value_name = "VERSION")]
+        version: Option<String>,
+    },
+    /// Publish a local skill to the ClawHub registry
+    Publish {
+        /// Skill name to publish
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+    /// Remove an installed skill
+    Remove {
+        /// Skill name
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+    /// Update a registry-installed skill to the latest version
+    Update {
+        /// Skill name (or 'all' to update all registry skills)
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+    /// Create a new skill from template
+    Create {
+        /// Skill name (slug, e.g. my-skill)
+        #[arg(value_name = "NAME")]
+        name: String,
+        /// Short description
+        #[arg(long, value_name = "DESC")]
+        description: Option<String>,
+    },
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -997,29 +1039,172 @@ async fn main() -> Result<()> {
             let mut sm = SkillManager::with_dirs(skills_dirs);
             sm.load_skills()?;
 
+            // Configure registry if set in config
+            if let Some(url) = config.clawhub_url.as_deref() {
+                sm.set_registry(url, config.clawhub_token.clone());
+            }
+
             match sub {
                 SkillsCommands::List => {
                     use rustyclaw::theme as t;
                     let skills = sm.get_skills();
                     if skills.is_empty() {
                         println!("{}", t::muted("No skills installed."));
+                        println!("{}", t::muted("Search for skills: rustyclaw skills search <query>"));
                     } else {
+                        println!("{} skill(s) installed:\n", skills.len());
                         for s in skills {
-                            if s.enabled {
-                                println!("  {}", t::icon_ok(&t::accent_bright(&s.name)));
-                            } else {
-                                println!("  {}", t::icon_muted(&s.name));
-                            }
+                            let status = if s.enabled { t::icon_ok("") } else { t::icon_muted("") };
+                            let source = match &s.source {
+                                rustyclaw::skills::SkillSource::Local => t::muted("local"),
+                                rustyclaw::skills::SkillSource::Registry { version, .. } => {
+                                    t::accent(&format!("registry v{}", version))
+                                }
+                            };
+                            let desc = s.description.as_deref().unwrap_or("(no description)");
+                            println!("  {} {} [{}] — {}", status, t::accent_bright(&s.name), source, desc);
                         }
                     }
                 }
                 SkillsCommands::Info { name } => {
-                    println!("{}", rustyclaw::theme::muted(
-                        &format!("Skill info for '{}' is not yet implemented.", name)
-                    ));
+                    match sm.skill_info(&name) {
+                        Some(info) => print!("{}", info),
+                        None => eprintln!("{}", rustyclaw::theme::warn(&format!("Skill '{}' not found.", name))),
+                    }
                 }
                 SkillsCommands::Check => {
-                    println!("{}", rustyclaw::theme::muted("Skill check is not yet implemented."));
+                    use rustyclaw::theme as t;
+                    let skills = sm.get_skills().to_vec();
+                    let mut ok = 0usize;
+                    let mut issues = 0usize;
+                    for skill in &skills {
+                        let gate = sm.check_gates(skill);
+                        if gate.passed {
+                            println!("  {} {}", t::icon_ok(""), t::accent_bright(&skill.name));
+                            ok += 1;
+                        } else {
+                            println!("  {} {}", t::icon_fail(""), t::warning_text(&skill.name));
+                            if !gate.missing_bins.is_empty() {
+                                println!("      Missing binaries: {}", gate.missing_bins.join(", "));
+                            }
+                            if !gate.missing_env.is_empty() {
+                                println!("      Missing env vars: {}", gate.missing_env.join(", "));
+                            }
+                            issues += 1;
+                        }
+                    }
+                    println!("\n{} ok, {} with issues", ok, issues);
+                }
+                SkillsCommands::Search { query } => {
+                    use rustyclaw::theme as t;
+                    println!("Searching ClawHub for '{}'…", query);
+                    match sm.search_registry(&query) {
+                        Ok(results) if results.is_empty() => {
+                            println!("{}", t::muted(&format!("No skills found for '{}'.", query)));
+                        }
+                        Ok(results) => {
+                            let is_local = results.iter().any(|r| r.version == "local");
+                            if is_local {
+                                println!("{}", t::muted("(Registry offline — showing local matches)"));
+                            }
+                            println!("{} result(s):\n", results.len());
+                            for r in &results {
+                                let display = if r.display_name.is_empty() { &r.name } else { &r.display_name };
+                                let ver = if r.version.is_empty() || r.version == "local" {
+                                    r.version.clone()
+                                } else {
+                                    format!("v{}", r.version)
+                                };
+                                let by = if r.author.is_empty() { String::new() } else { format!(" by {}", r.author) };
+                                let secrets = if r.required_secrets.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!("  [needs: {}]", r.required_secrets.join(", "))
+                                };
+                                println!("  {} {} ({}){}  —  {}{}", t::bullet(), t::accent_bright(display), t::muted(&format!("{}{}", ver, by)), secrets, r.description, "");
+                            }
+                            println!("\nInstall: rustyclaw skills install <name>");
+                        }
+                        Err(e) => eprintln!("{}", t::error(&format!("Search failed: {}", e))),
+                    }
+                }
+                SkillsCommands::Install { name, version } => {
+                    use rustyclaw::theme as t;
+                    let ver_str = version.as_deref().unwrap_or("latest");
+                    println!("Installing '{}' ({}) from ClawHub…", name, ver_str);
+                    match sm.install_from_registry(&name, version.as_deref()) {
+                        Ok(skill) => {
+                            println!("{}", t::icon_ok(&format!(
+                                " Installed: {} — {}",
+                                t::accent_bright(&skill.name),
+                                skill.description.as_deref().unwrap_or(""),
+                            )));
+                        }
+                        Err(e) => eprintln!("{}", t::error(&format!("Install failed: {}", e))),
+                    }
+                }
+                SkillsCommands::Publish { name } => {
+                    use rustyclaw::theme as t;
+                    println!("Publishing '{}' to ClawHub…", name);
+                    match sm.publish_to_registry(&name) {
+                        Ok(msg) => println!("{}", t::icon_ok(&format!(" {}", msg))),
+                        Err(e) => eprintln!("{}", t::error(&format!("Publish failed: {}", e))),
+                    }
+                }
+                SkillsCommands::Remove { name } => {
+                    use rustyclaw::theme as t;
+                    match sm.remove_skill(&name) {
+                        Ok(()) => println!("{}", t::icon_ok(&format!(" Removed skill '{}'.", name))),
+                        Err(e) => eprintln!("{}", t::error(&format!("Remove failed: {}", e))),
+                    }
+                }
+                SkillsCommands::Update { name } => {
+                    use rustyclaw::theme as t;
+                    if name == "all" {
+                        let registry_skills: Vec<_> = sm
+                            .get_skills()
+                            .iter()
+                            .filter(|s| matches!(s.source, rustyclaw::skills::SkillSource::Registry { .. }))
+                            .map(|s| s.name.clone())
+                            .collect();
+                        if registry_skills.is_empty() {
+                            println!("{}", t::muted("No registry skills to update."));
+                        } else {
+                            println!("Updating {} skill(s)…", registry_skills.len());
+                            for skill_name in &registry_skills {
+                                print!("  Updating '{}'… ", skill_name);
+                                match sm.update_skill(skill_name) {
+                                    Ok(updated) => {
+                                        if updated {
+                                            println!("{}", t::icon_ok(" Updated"));
+                                        } else {
+                                            println!("{}", t::muted("already up to date"));
+                                        }
+                                    }
+                                    Err(e) => println!("{}", t::error(&format!("failed: {}", e))),
+                                }
+                            }
+                        }
+                    } else {
+                        println!("Updating '{}'…", name);
+                        match sm.update_skill(&name) {
+                            Ok(true) => println!("{}", t::icon_ok(" Updated to latest version.")),
+                            Ok(false) => println!("{}", t::muted("Already up to date.")),
+                            Err(e) => eprintln!("{}", t::error(&format!("Update failed: {}", e))),
+                        }
+                    }
+                }
+                SkillsCommands::Create { name, description } => {
+                    use rustyclaw::theme as t;
+                    let skills_dir = config.skills_dir();
+                    match sm.create_skill(&name, description.as_deref(), &skills_dir) {
+                        Ok(path) => {
+                            println!("{}", t::icon_ok(&format!(" Created skill '{}'", name)));
+                            println!("  Edit: {}", path.display());
+                            println!("  Then publish: rustyclaw skills publish {}", name);
+                        }
+                        Err(e) => eprintln!("{}", t::error(&format!("Create failed: {}", e))),
+                    }
                 }
             }
         }

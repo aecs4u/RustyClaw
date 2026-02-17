@@ -983,3 +983,30 @@ pub fn skill_link_secret_params() -> Vec<ToolParam> {
         },
     ]
 }
+
+pub fn skill_publish_params() -> Vec<ToolParam> {
+    vec![ToolParam {
+        name: "name".into(),
+        description: "Name of the local skill to publish to ClawHub. Must match the skill's SKILL.md frontmatter name.".into(),
+        param_type: "string".into(),
+        required: true,
+    }]
+}
+
+pub fn skill_remove_params() -> Vec<ToolParam> {
+    vec![ToolParam {
+        name: "name".into(),
+        description: "Name of the installed skill to remove.".into(),
+        param_type: "string".into(),
+        required: true,
+    }]
+}
+
+pub fn skill_update_params() -> Vec<ToolParam> {
+    vec![ToolParam {
+        name: "name".into(),
+        description: "Name of the registry skill to update to the latest version. Use 'all' to update all registry-installed skills at once.".into(),
+        param_type: "string".into(),
+        required: true,
+    }]
+}

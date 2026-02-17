@@ -482,8 +482,9 @@ impl SkillManager {
         if eligible.is_empty() {
             context.push_str("No skills are currently loaded.\n\n");
             context.push_str("To find and install skills:\n");
-            context.push_str("- Browse: https://clawhub.com\n");
-            context.push_str("- Install: `npm i -g clawhub && clawhub install <skill-name>`\n");
+            context.push_str("- Browse: https://clawhub.ai\n");
+            context.push_str("- Search: `rustyclaw skills search <query>`\n");
+            context.push_str("- Install: `rustyclaw skills install <skill-name>`\n");
             return context;
         }
 
@@ -502,8 +503,8 @@ impl SkillManager {
         context.push_str("</available_skills>\n\n");
 
         // Add note about ClawHub for finding more skills
-        context.push_str("To find more skills: https://clawhub.com\n");
-        context.push_str("To install a skill: `clawhub install <skill-name>` (requires npm i -g clawhub)\n");
+        context.push_str("To find more skills: https://clawhub.ai\n");
+        context.push_str("To install a skill: `rustyclaw skills install <skill-name>`\n");
 
         context
     }
@@ -823,11 +824,27 @@ impl SkillManager {
         let content = std::fs::read_to_string(&skill.path)
             .context("Failed to read skill file")?;
 
+        // Extract version from frontmatter or fall back to "0.1.0"
+        let version = {
+            let (fm, _) = parse_frontmatter(&content)?;
+            fm.get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("0.1.0")
+                .to_string()
+        };
+        let author = {
+            let (fm, _) = parse_frontmatter(&content)?;
+            fm.get("author")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
+
         let manifest = SkillManifest {
             name: skill.name.clone(),
-            version: "0.1.0".to_string(), // TODO: extract from frontmatter
+            version,
             description: skill.description.clone().unwrap_or_default(),
-            author: String::new(),
+            author,
             license: "MIT".to_string(),
             repository: skill.metadata.homepage.clone(),
             required_secrets: skill.linked_secrets.clone(),
@@ -870,6 +887,142 @@ impl SkillManager {
             "Published {} v{} to {}",
             manifest.name, manifest.version, self.registry_url,
         ))
+    }
+
+    /// Update a registry-installed skill to the latest version.
+    ///
+    /// Returns `true` if the skill was updated, `false` if already up to date.
+    pub fn update_skill(&mut self, skill_name: &str) -> Result<bool> {
+        let skill = self
+            .get_skill(skill_name)
+            .ok_or_else(|| anyhow::anyhow!("Skill not found: {}", skill_name))?;
+
+        let (registry_url, current_version) = match &skill.source {
+            SkillSource::Registry { registry_url, version } => {
+                (registry_url.clone(), version.clone())
+            }
+            SkillSource::Local => {
+                anyhow::bail!(
+                    "'{}' is a local skill. Only registry-installed skills can be updated.",
+                    skill_name
+                );
+            }
+        };
+
+        // Check the registry for the latest version
+        let latest = self.fetch_latest_version(skill_name)?;
+
+        if latest == current_version || latest == "latest" {
+            return Ok(false); // Already up to date
+        }
+
+        // Re-install with the latest version
+        self.install_from_registry(skill_name, None)?;
+        Ok(true)
+    }
+
+    /// Internal: fetch the latest version tag for a skill from the registry.
+    fn fetch_latest_version(&self, skill_name: &str) -> Result<String> {
+        let url = format!(
+            "{}/api/v1/skills/{}",
+            self.registry_url,
+            urlencoding::encode(skill_name),
+        );
+
+        let client = reqwest::blocking::Client::new();
+        let mut req = client.get(&url);
+        if let Some(ref token) = self.registry_token {
+            req = req.bearer_auth(token);
+        }
+
+        let resp = req
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .context("Failed to fetch skill metadata from ClawHub")?;
+
+        if !resp.status().is_success() {
+            // Fall back to "latest" — install_from_registry will get newest
+            return Ok("latest".to_string());
+        }
+
+        #[derive(serde::Deserialize)]
+        struct SkillMeta {
+            version: Option<String>,
+        }
+        let meta: SkillMeta = resp.json().unwrap_or(SkillMeta { version: None });
+        Ok(meta.version.unwrap_or_else(|| "latest".to_string()))
+    }
+
+    /// Create a new skill from template in the given directory.
+    ///
+    /// Returns the path to the created `SKILL.md` file.
+    pub fn create_skill(
+        &mut self,
+        name: &str,
+        description: Option<&str>,
+        skills_dir: &std::path::Path,
+    ) -> Result<std::path::PathBuf> {
+        // Validate skill name (slug format)
+        if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            anyhow::bail!(
+                "Invalid skill name '{}'. Use only alphanumeric characters, hyphens, and underscores.",
+                name
+            );
+        }
+
+        let skill_dir = skills_dir.join(name);
+        if skill_dir.exists() {
+            anyhow::bail!("Skill directory already exists: {}", skill_dir.display());
+        }
+
+        std::fs::create_dir_all(&skill_dir)
+            .context("Failed to create skill directory")?;
+
+        let desc = description.unwrap_or("A custom skill for RustyClaw");
+        let template = format!(
+            r#"---
+name: {name}
+description: {desc}
+version: "0.1.0"
+author: ""
+metadata:
+  openclaw:
+    requires:
+      bins: []
+      env: []
+---
+
+# {name}
+
+{desc}
+
+## Instructions
+
+Add your skill instructions here. The agent will read this file when the task
+matches your skill's description.
+
+### Example Usage
+
+Describe when this skill should be used and what the agent should do.
+
+### Available Tools
+
+List any specific tools or APIs this skill relies on.
+"#,
+            name = name,
+            desc = desc,
+        );
+
+        let skill_md_path = skill_dir.join("SKILL.md");
+        std::fs::write(&skill_md_path, template)
+            .context("Failed to write SKILL.md")?;
+
+        // Load the new skill into memory
+        if let Ok(skill) = self.load_skill_md(&skill_md_path) {
+            self.skills.push(skill);
+        }
+
+        Ok(skill_md_path)
     }
 }
 
