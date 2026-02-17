@@ -7,10 +7,10 @@
 use crate::config::{Config, MessengerConfig};
 use crate::messengers::{
     DiscordMessenger, GmailConfig, GmailMessenger, GoogleChatConfig, GoogleChatMessenger,
-    IrcConfig, IrcMessenger, MattermostConfig, MattermostMessenger, MediaAttachment, Message,
-    Messenger, MessengerManager, SendOptions, SlackConfig, SlackMessenger, TeamsConfig,
-    TeamsMessenger, TelegramMessenger, WebhookMessenger, WhatsAppConfig, WhatsAppMessenger,
-    XmppConfig, XmppMessenger,
+    IrcConfig, IrcMessenger, LarkConfig, LarkMessenger, LineConfig, LineMessenger,
+    MattermostConfig, MattermostMessenger, MediaAttachment, Message, Messenger, MessengerManager,
+    SendOptions, SlackConfig, SlackMessenger, TeamsConfig, TeamsMessenger, TelegramMessenger,
+    WebhookMessenger, WhatsAppConfig, WhatsAppMessenger, XmppConfig, XmppMessenger,
 };
 use crate::pairing::PairingManager;
 use crate::soul::load_workspace_personality_files;
@@ -187,6 +187,60 @@ async fn create_messenger(config: &MessengerConfig) -> Result<Box<dyn Messenger>
             };
 
             Box::new(GoogleChatMessenger::new(name, gc_config))
+        }
+        "lark" | "feishu" => {
+            let lark_config = LarkConfig {
+                token: config
+                    .token
+                    .clone()
+                    .or_else(|| std::env::var("LARK_BOT_TOKEN").ok())
+                    .or_else(|| std::env::var("FEISHU_BOT_TOKEN").ok()),
+                webhook_url: config
+                    .webhook_url
+                    .clone()
+                    .or_else(|| std::env::var("LARK_WEBHOOK_URL").ok())
+                    .or_else(|| std::env::var("FEISHU_WEBHOOK_URL").ok()),
+                default_chat_id: config
+                    .channel_id
+                    .clone()
+                    .or_else(|| config.default_recipient.clone())
+                    .or_else(|| std::env::var("LARK_CHAT_ID").ok())
+                    .or_else(|| std::env::var("FEISHU_CHAT_ID").ok()),
+                api_base: config
+                    .base_url
+                    .clone()
+                    .unwrap_or_else(|| "https://open.feishu.cn/open-apis".to_string()),
+            };
+
+            if lark_config.webhook_url.is_none() && lark_config.token.is_none() {
+                anyhow::bail!("Lark/Feishu requires webhook_url OR token (config or env vars)");
+            }
+
+            Box::new(LarkMessenger::new(name, lark_config))
+        }
+        "line" => {
+            let line_config = LineConfig {
+                token: config
+                    .token
+                    .clone()
+                    .or_else(|| std::env::var("LINE_CHANNEL_ACCESS_TOKEN").ok())
+                    .or_else(|| std::env::var("LINE_BOT_TOKEN").ok()),
+                default_to: config
+                    .channel_id
+                    .clone()
+                    .or_else(|| config.default_recipient.clone())
+                    .or_else(|| std::env::var("LINE_DEFAULT_TO").ok()),
+                api_base: config
+                    .base_url
+                    .clone()
+                    .unwrap_or_else(|| "https://api.line.me/v2/bot".to_string()),
+            };
+
+            if line_config.token.is_none() {
+                anyhow::bail!("LINE requires token (config or LINE_CHANNEL_ACCESS_TOKEN env var)");
+            }
+
+            Box::new(LineMessenger::new(name, line_config))
         }
         "teams" => {
             let teams_config = TeamsConfig {
@@ -740,37 +794,30 @@ async fn process_incoming_message(
         && final_response.trim() != "NO_REPLY"
         && final_response.trim() != "HEARTBEAT_OK"
     {
-        let mgr = messenger_mgr.lock().await;
-        if let Some(messenger) = mgr.get_messenger_by_type(messenger_type) {
-            // Stop typing indicator before sending response
-            let _ = messenger.set_typing(typing_channel, false).await;
+        let final_response =
+            sanitize_messenger_output(&final_response, config, messenger_type, &msg.sender);
 
-            let recipient = msg.channel.as_deref().unwrap_or(&msg.sender);
-
-            let opts = SendOptions {
-                recipient,
-                content: &final_response,
-                reply_to: Some(&msg.id),
-                silent: false,
-                media: None,
-            };
-
-            match messenger.send_message_with_options(opts).await {
-                Ok(msg_id) => {
-                    eprintln!(
-                        "[messenger] Sent response ({}): {}",
-                        msg_id,
-                        if final_response.len() > 50 {
-                            format!("{}...", &final_response[..50])
-                        } else {
-                            final_response.clone()
-                        }
-                    );
-                }
-                Err(e) => {
-                    eprintln!("[messenger] Failed to send response: {}", e);
-                }
+        // Stop typing indicator before sending response
+        {
+            let mgr = messenger_mgr.lock().await;
+            if let Some(messenger) = mgr.get_messenger_by_type(messenger_type) {
+                let _ = messenger.set_typing(typing_channel, false).await;
             }
+        }
+
+        if let Err(e) =
+            send_messenger_response(messenger_mgr, messenger_type, &msg, &final_response).await
+        {
+            eprintln!("[messenger] Failed to send response: {}", e);
+        } else {
+            eprintln!(
+                "[messenger] Sent response: {}",
+                if final_response.len() > 50 {
+                    format!("{}...", &final_response[..50])
+                } else {
+                    final_response.clone()
+                }
+            );
         }
     } else {
         // No response being sent - ensure typing indicator is stopped
@@ -781,6 +828,47 @@ async fn process_incoming_message(
     }
 
     Ok(())
+}
+
+fn sanitize_messenger_output(
+    content: &str,
+    config: &Config,
+    messenger_type: &str,
+    sender: &str,
+) -> String {
+    use crate::security::{LeakDetector, PolicyAction};
+
+    let policy = config.safety.leak_detection_policy;
+    if matches!(policy, PolicyAction::Ignore) {
+        return content.to_string();
+    }
+
+    let detector = LeakDetector::new(config.safety.leak_sensitivity);
+    let result = detector.scan(content);
+    if result.safe {
+        return content.to_string();
+    }
+
+    match policy {
+        PolicyAction::Warn => {
+            eprintln!(
+                "[messenger][safety] potential leak in outbound response to {}:{} ({})",
+                messenger_type,
+                sender,
+                result.details.join(", ")
+            );
+            content.to_string()
+        }
+        PolicyAction::Sanitize => detector.sanitize(content),
+        PolicyAction::Block => {
+            eprintln!(
+                "[messenger][safety] blocked outbound response to {}:{} due to leak policy",
+                messenger_type, sender
+            );
+            "Output blocked by safety policy.".to_string()
+        }
+        PolicyAction::Ignore => content.to_string(),
+    }
 }
 
 /// Build system prompt with messenger context.
@@ -1108,16 +1196,24 @@ async fn send_messenger_response(
     let mgr = messenger_mgr.lock().await;
     if let Some(messenger) = mgr.get_messenger_by_type(messenger_type) {
         let recipient = msg.channel.as_deref().unwrap_or(&msg.sender);
+        let policy = crate::messengers::chunking::policy_for_messenger(messenger_type);
+        let chunks = crate::messengers::chunking::chunk_message(content, policy.max_chars);
 
-        let opts = SendOptions {
-            recipient,
-            content,
-            reply_to: Some(&msg.id),
-            silent: false,
-            media: None,
-        };
+        for (idx, chunk) in chunks.iter().enumerate() {
+            let opts = SendOptions {
+                recipient,
+                content: chunk,
+                reply_to: if idx == 0 { Some(&msg.id) } else { None },
+                silent: false,
+                media: None,
+            };
 
-        messenger.send_message_with_options(opts).await?;
+            messenger.send_message_with_options(opts).await?;
+
+            if idx + 1 < chunks.len() && policy.inter_chunk_delay_ms > 0 {
+                tokio::time::sleep(Duration::from_millis(policy.inter_chunk_delay_ms)).await;
+            }
+        }
     }
     Ok(())
 }

@@ -221,6 +221,124 @@ impl HealthConfig {
     }
 }
 
+/// Per-IP gateway rate limiting configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitConfig {
+    /// Whether per-IP rate limiting is enabled for gateway messages.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Token bucket capacity (messages).
+    #[serde(default = "RateLimitConfig::default_capacity")]
+    pub capacity: f64,
+    /// Token refill rate per second.
+    #[serde(default = "RateLimitConfig::default_refill_per_sec")]
+    pub refill_per_sec: f64,
+    /// Cost multiplier for control messages.
+    #[serde(default = "RateLimitConfig::default_control_cost")]
+    pub control_cost: f64,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            capacity: Self::default_capacity(),
+            refill_per_sec: Self::default_refill_per_sec(),
+            control_cost: Self::default_control_cost(),
+        }
+    }
+}
+
+impl RateLimitConfig {
+    fn default_capacity() -> f64 {
+        30.0
+    }
+
+    fn default_refill_per_sec() -> f64 {
+        5.0
+    }
+
+    fn default_control_cost() -> f64 {
+        2.0
+    }
+}
+
+/// Local network discovery (mDNS/DNS-SD) configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MdnsConfig {
+    /// Enable service advertisement/discovery.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Discovery mode: off, minimal, full.
+    #[serde(default = "MdnsConfig::default_mode")]
+    pub mode: String,
+    /// Service instance name (defaults to agent_name if omitted).
+    #[serde(default)]
+    pub service_name: Option<String>,
+    /// DNS-SD service type.
+    #[serde(default = "MdnsConfig::default_service_type")]
+    pub service_type: String,
+}
+
+impl Default for MdnsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: Self::default_mode(),
+            service_name: None,
+            service_type: Self::default_service_type(),
+        }
+    }
+}
+
+impl MdnsConfig {
+    fn default_mode() -> String {
+        "off".to_string()
+    }
+
+    fn default_service_type() -> String {
+        "_rustyclaw._tcp".to_string()
+    }
+}
+
+/// HTTP webhook trigger configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookTriggersConfig {
+    /// Enable webhook trigger endpoint.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Listen address for webhook endpoint.
+    #[serde(default = "WebhookTriggersConfig::default_listen")]
+    pub listen: String,
+    /// Path prefix for webhook endpoint.
+    #[serde(default = "WebhookTriggersConfig::default_path_prefix")]
+    pub path_prefix: String,
+    /// Optional shared secret expected in `X-Webhook-Secret` header.
+    #[serde(default)]
+    pub secret: Option<String>,
+}
+
+impl Default for WebhookTriggersConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen: Self::default_listen(),
+            path_prefix: Self::default_path_prefix(),
+            secret: None,
+        }
+    }
+}
+
+impl WebhookTriggersConfig {
+    fn default_listen() -> String {
+        "127.0.0.1:8787".to_string()
+    }
+
+    fn default_path_prefix() -> String {
+        "/webhook".to_string()
+    }
+}
+
 /// Voice features configuration (STT/TTS).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoiceConfig {
@@ -489,6 +607,15 @@ pub struct Config {
     /// Health check endpoint configuration.
     #[serde(default)]
     pub health: HealthConfig,
+    /// Per-IP gateway rate limiting configuration.
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
+    /// Local network service discovery configuration.
+    #[serde(default)]
+    pub mdns: MdnsConfig,
+    /// External webhook trigger endpoint configuration.
+    #[serde(default)]
+    pub webhook_triggers: WebhookTriggersConfig,
     /// Voice features configuration (STT/TTS).
     #[serde(default)]
     pub voice: VoiceConfig,
@@ -540,7 +667,8 @@ pub struct MessengerConfig {
     #[serde(default)]
     pub name: String,
     /// Messenger type: telegram, discord, slack, whatsapp, google-chat,
-    /// teams, mattermost, irc, xmpp, signal, matrix, webhook, gmail.
+    /// teams, mattermost, irc, xmpp, lark/feishu, line, signal, matrix,
+    /// webhook, gmail.
     #[serde(default)]
     pub messenger_type: String,
     /// Whether this messenger is enabled.
@@ -729,6 +857,9 @@ impl Default for Config {
             prompt_guard: PromptGuardConfig::default(),
             tls: TlsConfig::default(),
             health: HealthConfig::default(),
+            rate_limit: RateLimitConfig::default(),
+            mdns: MdnsConfig::default(),
+            webhook_triggers: WebhookTriggersConfig::default(),
             voice: VoiceConfig::default(),
             heartbeat: HeartbeatConfig::default(),
             metrics: MetricsConfig::default(),
@@ -931,6 +1062,7 @@ impl Config {
             "use_secrets",
             "gateway_url",
             "model",
+            "failover",
             "secrets_password_protected",
             "totp_enabled",
             "agent_access",
@@ -943,6 +1075,9 @@ impl Config {
             "tls",
             "metrics",
             "health",
+            "rate_limit",
+            "mdns",
+            "webhook_triggers",
             "voice",
             "heartbeat",
             "hooks",
@@ -952,6 +1087,11 @@ impl Config {
             "clawhub_token",
             "system_prompt",
             "messenger_poll_interval_ms",
+            "context_compaction",
+            "structured_memory",
+            "safety",
+            "embeddings",
+            "routines",
         ];
         validate_unknown_table_keys("", root, &root_allowed, &mut report);
 
@@ -1067,6 +1207,54 @@ impl Config {
             }
         }
 
+        // Nested [rate_limit]
+        if let Some(v) = root.get("rate_limit") {
+            match v.as_table() {
+                Some(tbl) => {
+                    let allowed = ["enabled", "capacity", "refill_per_sec", "control_cost"];
+                    validate_unknown_table_keys("rate_limit", tbl, &allowed, &mut report);
+                }
+                None => report.push(
+                    ConfigDiagnosticSeverity::Error,
+                    "rate_limit",
+                    "Expected [rate_limit] to be a table.".to_string(),
+                    None,
+                ),
+            }
+        }
+
+        // Nested [mdns]
+        if let Some(v) = root.get("mdns") {
+            match v.as_table() {
+                Some(tbl) => {
+                    let allowed = ["enabled", "mode", "service_name", "service_type"];
+                    validate_unknown_table_keys("mdns", tbl, &allowed, &mut report);
+                }
+                None => report.push(
+                    ConfigDiagnosticSeverity::Error,
+                    "mdns",
+                    "Expected [mdns] to be a table.".to_string(),
+                    None,
+                ),
+            }
+        }
+
+        // Nested [webhook_triggers]
+        if let Some(v) = root.get("webhook_triggers") {
+            match v.as_table() {
+                Some(tbl) => {
+                    let allowed = ["enabled", "listen", "path_prefix", "secret"];
+                    validate_unknown_table_keys("webhook_triggers", tbl, &allowed, &mut report);
+                }
+                None => report.push(
+                    ConfigDiagnosticSeverity::Error,
+                    "webhook_triggers",
+                    "Expected [webhook_triggers] to be a table.".to_string(),
+                    None,
+                ),
+            }
+        }
+
         // Nested [voice]
         if let Some(v) = root.get("voice") {
             match v.as_table() {
@@ -1151,6 +1339,162 @@ impl Config {
                     ConfigDiagnosticSeverity::Error,
                     "pairing",
                     "Expected [pairing] to be a table.".to_string(),
+                    None,
+                ),
+            }
+        }
+
+        // Nested [failover]
+        if let Some(v) = root.get("failover") {
+            match v.as_table() {
+                Some(tbl) => {
+                    let allowed = ["enabled", "providers", "strategy", "max_retries"];
+                    validate_unknown_table_keys("failover", tbl, &allowed, &mut report);
+
+                    if let Some(pv) = tbl.get("providers") {
+                        if let Some(arr) = pv.as_array() {
+                            let provider_allowed = ["provider", "model", "base_url", "priority"];
+                            for (idx, entry) in arr.iter().enumerate() {
+                                match entry.as_table() {
+                                    Some(p_tbl) => {
+                                        let prefix = format!("failover.providers[{}]", idx);
+                                        validate_unknown_table_keys(
+                                            &prefix,
+                                            p_tbl,
+                                            &provider_allowed,
+                                            &mut report,
+                                        );
+                                    }
+                                    None => report.push(
+                                        ConfigDiagnosticSeverity::Error,
+                                        format!("failover.providers[{}]", idx),
+                                        "Each provider entry must be a table.".to_string(),
+                                        None,
+                                    ),
+                                }
+                            }
+                        } else {
+                            report.push(
+                                ConfigDiagnosticSeverity::Error,
+                                "failover.providers",
+                                "Expected failover.providers to be an array of tables."
+                                    .to_string(),
+                                None,
+                            );
+                        }
+                    }
+                }
+                None => report.push(
+                    ConfigDiagnosticSeverity::Error,
+                    "failover",
+                    "Expected [failover] to be a table.".to_string(),
+                    None,
+                ),
+            }
+        }
+
+        // Nested [safety]
+        if let Some(v) = root.get("safety") {
+            match v.as_table() {
+                Some(tbl) => {
+                    let allowed = [
+                        "prompt_injection_policy",
+                        "ssrf_policy",
+                        "leak_detection_policy",
+                        "prompt_sensitivity",
+                        "leak_sensitivity",
+                        "allow_private_ips",
+                        "blocked_cidr_ranges",
+                    ];
+                    validate_unknown_table_keys("safety", tbl, &allowed, &mut report);
+                }
+                None => report.push(
+                    ConfigDiagnosticSeverity::Error,
+                    "safety",
+                    "Expected [safety] to be a table.".to_string(),
+                    None,
+                ),
+            }
+        }
+
+        // Nested [context_compaction]
+        if let Some(v) = root.get("context_compaction") {
+            match v.as_table() {
+                Some(tbl) => {
+                    let allowed = [
+                        "enabled",
+                        "strategy",
+                        "max_messages",
+                        "keep_recent",
+                        "keep_initial",
+                        "importance_threshold",
+                    ];
+                    validate_unknown_table_keys("context_compaction", tbl, &allowed, &mut report);
+                }
+                None => report.push(
+                    ConfigDiagnosticSeverity::Error,
+                    "context_compaction",
+                    "Expected [context_compaction] to be a table.".to_string(),
+                    None,
+                ),
+            }
+        }
+
+        // Nested [structured_memory]
+        if let Some(v) = root.get("structured_memory") {
+            match v.as_table() {
+                Some(tbl) => {
+                    let allowed = [
+                        "enabled",
+                        "db_path",
+                        "min_confidence",
+                        "reflection_interval_secs",
+                        "max_facts",
+                    ];
+                    validate_unknown_table_keys("structured_memory", tbl, &allowed, &mut report);
+                }
+                None => report.push(
+                    ConfigDiagnosticSeverity::Error,
+                    "structured_memory",
+                    "Expected [structured_memory] to be a table.".to_string(),
+                    None,
+                ),
+            }
+        }
+
+        // Nested [embeddings]
+        if let Some(v) = root.get("embeddings") {
+            match v.as_table() {
+                Some(tbl) => {
+                    let allowed = [
+                        "provider",
+                        "model",
+                        "cache_dir",
+                        "openai_api_key",
+                        "openai_model",
+                    ];
+                    validate_unknown_table_keys("embeddings", tbl, &allowed, &mut report);
+                }
+                None => report.push(
+                    ConfigDiagnosticSeverity::Error,
+                    "embeddings",
+                    "Expected [embeddings] to be a table.".to_string(),
+                    None,
+                ),
+            }
+        }
+
+        // Nested [routines]
+        if let Some(v) = root.get("routines") {
+            match v.as_table() {
+                Some(tbl) => {
+                    let allowed = ["enabled", "db_path", "check_interval_secs", "webhook_secret"];
+                    validate_unknown_table_keys("routines", tbl, &allowed, &mut report);
+                }
+                None => report.push(
+                    ConfigDiagnosticSeverity::Error,
+                    "routines",
+                    "Expected [routines] to be a table.".to_string(),
                     None,
                 ),
             }

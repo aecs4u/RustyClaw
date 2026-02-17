@@ -16,6 +16,61 @@ use_secrets = true
 # Blank lines between messages in the TUI (0 = compact, 1 = comfortable)
 # message_spacing = 1
 
+# Multi-provider failover (optional)
+[failover]
+enabled = false
+strategy = "priority"   # priority | round-robin | cost-optimized
+max_retries = 2
+# providers are configured as an array of tables:
+# [[failover.providers]]
+# provider = "openai"
+# model = "gpt-4.1-mini"
+# priority = 10
+# [[failover.providers]]
+# provider = "anthropic"
+# model = "claude-sonnet-4-20250514"
+# priority = 20
+
+# Unified safety layer
+[safety]
+prompt_injection_policy = "warn"   # ignore | warn | block | sanitize
+ssrf_policy = "block"
+leak_detection_policy = "sanitize"
+prompt_sensitivity = 0.7
+leak_sensitivity = 0.8
+allow_private_ips = false
+blocked_cidr_ranges = []
+
+# Context compaction for long conversations
+[context_compaction]
+enabled = true
+strategy = "hybrid"     # sliding_window | summarize | importance | hybrid
+max_messages = 120
+keep_initial = 6
+keep_recent = 24
+importance_threshold = 0.55
+
+# Per-IP gateway message rate limiting
+[rate_limit]
+enabled = true
+capacity = 30.0         # burst size
+refill_per_sec = 5.0    # sustained messages per second
+control_cost = 2.0      # control frames consume more tokens
+
+# Local network service advertisement (mDNS / DNS-SD)
+[mdns]
+enabled = false
+mode = "minimal"        # off | minimal | full
+service_name = "RustyClaw"
+service_type = "_rustyclaw._tcp"
+
+# External webhook trigger endpoint
+[webhook_triggers]
+enabled = false
+listen = "127.0.0.1:8787"
+path_prefix = "/webhook"
+# secret = "replace-with-random-shared-secret"
+
 # Messenger configurations
 # [[messengers]]
 # name = "slack"

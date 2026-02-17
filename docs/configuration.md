@@ -22,6 +22,25 @@ base_url = "https://openrouter.ai/api/v1"
 
 [sandbox]
 mode = "auto"
+
+[context_compaction]
+enabled = true
+strategy = "hybrid"
+
+[rate_limit]
+enabled = true
+capacity = 30.0
+refill_per_sec = 5.0
+control_cost = 2.0
+
+[mdns]
+enabled = false
+mode = "minimal"
+
+[webhook_triggers]
+enabled = false
+listen = "127.0.0.1:8787"
+path_prefix = "/webhook"
 ```
 
 Reference examples:

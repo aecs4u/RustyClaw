@@ -60,7 +60,7 @@
 - ✅ **Skills System** — JSON/TOML/YAML, gating, prompt injection defense
 - ✅ **TUI Interface** — Full-featured with 12+ slash commands, tab completion
 - ✅ **Gateway Architecture** — WebSocket with ping/pong, TLS support
-- ✅ **Messenger Backends** — Webhook, Console, Discord, Telegram, Signal, Matrix (6 channels)
+- ✅ **Messenger Backends** — Discord, Telegram, Signal, Matrix, Lark, LINE + additional adapters (Webhook/Console/Google Chat/Teams/Mattermost/WhatsApp/IRC/XMPP/Gmail)
 - ✅ **Presence/Typing** — Shows typing indicators while processing (vs OpenClaw ❌)
 - ✅ **SOUL.md** — Personality system
 - ✅ **CLI Commands** — setup, gateway, configure, secrets, doctor, tui, command, status, version, skill (10)
@@ -123,7 +123,7 @@ RustyClaw serves as the reference implementation. Other projects are compared ag
 | **TUI Interface** | **✅ Full TUI** | ✅ Control UI + Web | ❌ Daemon only | ✅ Full TUI | ❌ CLI only | ❌ CLI only | ⚠️ Basic TUI |
 | **Skills System** | **✅ Full gating** | ✅ Full gating | ⚠️ Basic plugins | ✅ Enhanced | ⚠️ Basic | ❌ Missing | ⚠️ Basic |
 | **Browser Automation** | **⚠️ CDP (optional)** | ✅ Full profiles | ❌ Missing | ✅ CDP + profiles | ❌ Missing | ❌ Missing | ❌ Missing |
-| **Messengers** | **✅ 6 channels** | ✅ 13 channels | ✅ 5 channels | ✅ 8 channels | ✅ 6 channels | ⚠️ 2 channels | ✅ 10 channels |
+| **Messengers** | **✅ 8+ channels** | ✅ 13 channels | ✅ 5 channels | ✅ 8 channels | ✅ 6 channels | ⚠️ 2 channels | ✅ 10 channels |
 | **Prometheus Metrics** | **✅ Yes** | ❌ No | ❌ No | ✅ Yes | ❌ No | ❌ No | ⚠️ Basic |
 | **Hot-Reload Config** | **✅ Yes (SIGHUP)** | ⚠️ Manual | ❌ Restart req | ✅ Yes | ❌ No | ❌ No | ❌ No |
 | **Lifecycle Hooks** | **✅ Yes** | ❌ No | ❌ No | ✅ Yes | ❌ No | ❌ No | ❌ No |
@@ -227,7 +227,7 @@ These features from competing projects could enhance RustyClaw:
 ### From Carapace (Rust)
 - ❌ **Ed25519 plugin signatures** — Cryptographically signed plugins
 - ❌ **mTLS support** — Mutual TLS
-- ❌ **mDNS discovery** — Auto-discover nodes
+- ✅ **mDNS discovery** — Auto-discover nodes (baseline gateway advertisement)
 - ❌ **DNS rebinding protection** — ⚠️ Partial in RustyClaw
 
 **Priority**: Medium-High (security enhancements)
@@ -264,10 +264,10 @@ These features from competing projects could enhance RustyClaw:
 ### Low Priority (Nice-to-Have)
 10. ❌ **Event-triggered automation** — State-change actions
 11. ❌ **Cloud templates** — Deployment guides
-12. ❌ **mDNS discovery** — Node pairing
+12. ✅ **mDNS discovery** — Node pairing baseline
 13. ✅ **Tailscale integration** — Remote access [Issue #40, Commit dab866f]
 14. ❌ **Gmail Pub/Sub** — Email automation
-15. ❌ **Additional messengers** — WhatsApp, Slack, etc.
+15. ✅ **Additional messengers** — WhatsApp, Slack, Teams, Mattermost, IRC/XMPP, Lark, LINE
 
 ### Very Low / Out of Scope
 16. ⚠️ **Voice Wake / Talk Mode** — Framework implemented [Issue #41, Commit b02a490]
@@ -284,7 +284,7 @@ These features from competing projects could enhance RustyClaw:
 - **Tool coverage**: 100% (30/30 vs OpenClaw)
 - **Security posture**: Industry-leading (tied #1 with IronClaw)
 - **Resource efficiency**: 89MB RAM (11x better than OpenClaw, ~300% worse than PicoClaw)
-- **Messenger coverage**: 46% (6/13 vs OpenClaw)
+- **Messenger coverage**: 62% (8/13 vs OpenClaw core set)
 - **Platform features**: ~85% vs OpenClaw, 100%+ vs all Rust competitors
 - **Overall vs OpenClaw**: ~80% parity + unique security features
 - **Overall vs Rust ecosystem**: Leader in tool coverage + security

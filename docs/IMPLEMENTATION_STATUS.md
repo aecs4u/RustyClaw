@@ -10,6 +10,17 @@ The Feature Integration Plan addresses security and operational gaps identified 
 **Memory Budget**: < 200MB total
 **Status**: Sprint 1-2 complete (+ heartbeat monitoring); Sprint 3 (WebAuthn gateway integration) pending
 
+## Recent Roadmap Progress
+
+- ✅ Context compaction strategies completed (`sliding_window`, `summarize`, `importance`, `hybrid`)
+- ✅ Per-IP token bucket rate limiting added for gateway message traffic (`[rate_limit]`)
+- ✅ mDNS/DNS-SD gateway service advertisement added (`[mdns]`, Linux/macOS tooling)
+- ✅ Webhook trigger endpoint added for external integrations (`[webhook_triggers]`)
+- ✅ Messenger response chunking now consistently applied to standard channel replies
+- ✅ Runtime provider failover path enabled with strategy selection and cost tracking
+- ✅ Outbound PII/credential safety sanitization for gateway/messenger responses
+- ✅ Agent event + activity status streaming frames for real-time progress visibility
+
 ---
 
 ## Sprint 1: Core Security ✅ COMPLETE

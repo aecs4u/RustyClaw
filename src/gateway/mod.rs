@@ -11,13 +11,16 @@ mod failover;
 mod heartbeat;
 mod health;
 mod helpers;
+mod mdns;
 mod messenger_handler;
 mod providers;
+mod rate_limit;
 mod secrets_handler;
 mod skills_handler;
 mod tls;
 mod types;
 mod webauthn;
+mod webhook_triggers;
 
 use std::pin::Pin;
 use std::task::{Context as TaskContext, Poll};
@@ -99,6 +102,7 @@ use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, RwLock};
 use tokio_tungstenite::WebSocketStream;
@@ -351,6 +355,14 @@ pub async fn run_gateway(
     let shared_config: SharedConfig = Arc::new(RwLock::new(config.clone()));
     let shared_model_ctx: SharedModelCtx = Arc::new(RwLock::new(model_ctx.clone()));
     let rate_limiter = auth::new_rate_limiter();
+    let request_rate_limiter = if config.rate_limit.enabled {
+        Some(rate_limit::IpRateLimiter::new(
+            config.rate_limit.capacity,
+            config.rate_limit.refill_per_sec,
+        ))
+    } else {
+        None
+    };
 
     // ── Initialize pairing manager for DM security ──────────────────
     use crate::pairing::PairingManager;
@@ -435,6 +447,28 @@ pub async fn run_gateway(
         });
     }
 
+    // Start webhook trigger endpoint if enabled.
+    if config.webhook_triggers.enabled {
+        let webhook_addr = config.webhook_triggers.listen.clone();
+        let webhook_path = config.webhook_triggers.path_prefix.clone();
+        let webhook_secret = config.webhook_triggers.secret.clone();
+        let webhook_ctx = shared_model_ctx.clone();
+        let webhook_cancel = cancel.clone();
+        tokio::spawn(async move {
+            if let Err(e) = webhook_triggers::start_webhook_server(
+                &webhook_addr,
+                &webhook_path,
+                webhook_secret,
+                webhook_ctx,
+                webhook_cancel,
+            )
+            .await
+            {
+                eprintln!("[webhook] Server error: {}", e);
+            }
+        });
+    }
+
     // Start Prometheus metrics server if enabled
     if config.metrics.enabled {
         let metrics_addr: SocketAddr = config
@@ -479,6 +513,18 @@ pub async fn run_gateway(
         });
     }
 
+    // Start mDNS/DNS-SD service advertisement for local discovery.
+    if config.mdns.enabled && config.mdns.mode != "off" {
+        let mdns_cfg = config.mdns.clone();
+        let mdns_cancel = cancel.clone();
+        let agent_name = config.agent_name.clone();
+        tokio::spawn(async move {
+            if let Err(e) = mdns::run_mdns_service(&mdns_cfg, &agent_name, addr.port(), mdns_cancel).await {
+                eprintln!("[mdns] Service error: {}", e);
+            }
+        });
+    }
+
     eprintln!("[gateway] Listening on {}", addr);
     if messenger_mgr.is_some() {
         eprintln!("[gateway] Messenger polling enabled");
@@ -487,6 +533,21 @@ pub async fn run_gateway(
         eprintln!(
             "[gateway] Heartbeat enabled (interval={}s)",
             config.heartbeat.interval_secs
+        );
+    }
+    if config.rate_limit.enabled {
+        eprintln!(
+            "[gateway] Per-IP rate limiting enabled (capacity={}, refill_per_sec={})",
+            config.rate_limit.capacity, config.rate_limit.refill_per_sec
+        );
+    }
+    if config.mdns.enabled {
+        eprintln!("[gateway] mDNS mode: {}", config.mdns.mode);
+    }
+    if config.webhook_triggers.enabled {
+        eprintln!(
+            "[gateway] Webhook triggers enabled on {}{}",
+            config.webhook_triggers.listen, config.webhook_triggers.path_prefix
         );
     }
 
@@ -639,6 +700,7 @@ pub async fn run_gateway(
                 let tls_acceptor_clone = tls_acceptor.clone();
                 let hooks_clone = hook_registry.clone();
                 let stats_clone = health_stats.clone();
+                let request_rate_limiter_clone = request_rate_limiter.clone();
 
                 // Update connection stats
                 stats_clone.total_connections.fetch_add(1, Ordering::Relaxed);
@@ -661,7 +723,7 @@ pub async fn run_gateway(
                     if let Err(err) = handle_connection(
                         stream, peer, shared_cfg, shared_ctx,
                         session_clone, vault_clone, skill_clone,
-                        limiter_clone, hooks_clone, stats_clone.clone(), child_cancel,
+                        limiter_clone, request_rate_limiter_clone, hooks_clone, stats_clone.clone(), child_cancel,
                     ).await {
                         eprintln!("Gateway connection error from {}: {}", peer, err);
                     }
@@ -685,6 +747,7 @@ async fn handle_connection(
     vault: SharedVault,
     skill_mgr: SharedSkillManager,
     rate_limiter: auth::RateLimiter,
+    request_rate_limiter: Option<rate_limit::IpRateLimiter>,
     hook_registry: Arc<crate::hooks::HookRegistry>,
     health_stats: SharedHealthStats,
     cancel: CancellationToken,
@@ -1145,9 +1208,34 @@ async fn handle_connection(
                         // Track message in health stats
                         health_stats.total_messages.fetch_add(1, Ordering::Relaxed);
 
-                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(text.as_str()) {
-                            let msg_type = val.get("type").and_then(|t| t.as_str());
+                        let parsed = serde_json::from_str::<serde_json::Value>(text.as_str()).ok();
+                        let msg_type = parsed
+                            .as_ref()
+                            .and_then(|v| v.get("type"))
+                            .and_then(|t| t.as_str());
 
+                        if let Some(limiter) = request_rate_limiter.as_ref() {
+                            let is_control = msg_type
+                                .map(|t| requires_csrf(t) || t == "csrf")
+                                .unwrap_or(false);
+                            let cost = if is_control {
+                                config.rate_limit.control_cost.max(1.0)
+                            } else {
+                                1.0
+                            };
+                            if let Some(retry_after) = limiter.consume(peer_ip, cost).await {
+                                let frame = json!({
+                                    "type": "rate_limited",
+                                    "ok": false,
+                                    "message": "Rate limit exceeded for this client IP.",
+                                    "retry_after": retry_after,
+                                });
+                                let _ = writer.send(Message::Text(frame.to_string().into())).await;
+                                continue;
+                            }
+                        }
+
+                        if let Some(val) = parsed.as_ref() {
                             if let Some(msg_type) = msg_type {
                                 if requires_csrf(msg_type) {
                                     let token = val
@@ -1634,6 +1722,7 @@ async fn dispatch_text_message(
             return Ok(());
         }
     };
+    let request_pinned_provider = req.provider.is_some();
 
     // Unified safety layer: scan/sanitize/block suspicious user input.
     if config.prompt_guard.enabled {
@@ -1703,6 +1792,33 @@ async fn dispatch_text_message(
     // For Copilot, we'll refresh the session token on each loop iteration.
     let original_api_key = resolved.api_key.clone();
 
+    // Optional provider failover contexts (disabled when request explicitly pins provider).
+    let failover_manager = if config.failover.enabled
+        && !request_pinned_provider
+        && !config.failover.providers.is_empty()
+    {
+        Some(failover::FailoverManager::new(config.failover.clone()))
+    } else {
+        None
+    };
+
+    let failover_contexts = if let Some(manager) = failover_manager.as_ref() {
+        let mut v = vault.lock().await;
+        match manager.resolve_all_contexts(config, &mut v) {
+            Ok(ctxs) if !ctxs.is_empty() => {
+                eprintln!("[gateway] Failover enabled with {} providers", ctxs.len());
+                Some(ctxs)
+            }
+            Ok(_) => None,
+            Err(e) => {
+                eprintln!("[gateway] Failed to initialize failover contexts: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // ── Agentic tool loop ───────────────────────────────────────────
     // No hard limit — the model will stop when it's done. The user can
     // cancel by sending a {"type": "cancel"} message (e.g., pressing Esc).
@@ -1731,28 +1847,30 @@ async fn dispatch_text_message(
             return Ok(());
         }
 
-        // Refresh the bearer token before each model call.
-        // For Copilot providers, this ensures the session token is still valid.
-        match auth::resolve_bearer_token(
-            http,
-            &resolved.provider,
-            original_api_key.as_ref().map(|v| v.expose_secret()),
-            copilot_session,
-        )
-        .await
-        {
-            Ok(token) => resolved.api_key = token.map(SecretString::new),
-            Err(err) => {
-                let frame = json!({
-                    "type": "error",
-                    "ok": false,
-                    "message": format!("Token refresh failed: {}", err),
-                });
-                writer
-                    .send(Message::Text(frame.to_string().into()))
-                    .await
-                    .context("Failed to send error frame")?;
-                return Ok(());
+        // Refresh bearer token for the single-provider path.
+        // In failover mode, each candidate provider refreshes independently.
+        if failover_contexts.is_none() {
+            match auth::resolve_bearer_token(
+                http,
+                &resolved.provider,
+                original_api_key.as_ref().map(|v| v.expose_secret()),
+                copilot_session,
+            )
+            .await
+            {
+                Ok(token) => resolved.api_key = token.map(SecretString::new),
+                Err(err) => {
+                    let frame = json!({
+                        "type": "error",
+                        "ok": false,
+                        "message": format!("Token refresh failed: {}", err),
+                    });
+                    writer
+                        .send(Message::Text(frame.to_string().into()))
+                        .await
+                        .context("Failed to send error frame")?;
+                    return Ok(());
+                }
             }
         }
 
@@ -1777,30 +1895,140 @@ async fn dispatch_text_message(
             }
         }
 
-        let result = if resolved.provider == "anthropic" {
-            // Anthropic: use streaming mode with writer for real-time chunks
-            providers::call_anthropic_with_tools(http, &resolved, Some(writer)).await
-        } else if resolved.provider == "google" {
-            providers::call_google_with_tools(http, &resolved).await
+        let _ = writer
+            .send(Message::Text(
+                helpers::status_frame("thinking", "Calling model provider").into(),
+            ))
+            .await;
+        let _ = writer
+            .send(Message::Text(
+                json!({
+                    "type": "agent_event",
+                    "event": "iteration",
+                    "round": _round + 1,
+                })
+                .to_string()
+                .into(),
+            ))
+            .await;
+
+        let (model_resp, selected_provider_ctx) = if let (Some(manager), Some(contexts)) =
+            (failover_manager.as_ref(), failover_contexts.as_ref())
+        {
+            let start = manager.select_provider().await.unwrap_or(0);
+            let mut last_err: Option<anyhow::Error> = None;
+            let mut success: Option<(ModelResponse, ModelContext)> = None;
+
+            for offset in 0..contexts.len() {
+                let idx = (start + offset) % contexts.len();
+                let ctx = &contexts[idx];
+                let mut attempt = ProviderRequest {
+                    messages: resolved.messages.clone(),
+                    model: ctx.model.clone(),
+                    provider: ctx.provider.clone(),
+                    base_url: ctx.base_url.clone(),
+                    api_key: ctx.api_key.clone(),
+                };
+
+                match auth::resolve_bearer_token(
+                    http,
+                    &attempt.provider,
+                    attempt.api_key.as_ref().map(|v| v.expose_secret()),
+                    copilot_session,
+                )
+                .await
+                {
+                    Ok(token) => attempt.api_key = token.map(SecretString::new),
+                    Err(e) => {
+                        manager.record_failure(&ctx.provider).await;
+                        last_err = Some(e);
+                        continue;
+                    }
+                }
+
+                let result = if attempt.provider == "anthropic" {
+                    // In failover mode avoid streaming partial chunks from a provider
+                    // that might fail and require switching to another backend.
+                    providers::call_anthropic_with_tools(http, &attempt, None).await
+                } else if attempt.provider == "google" {
+                    providers::call_google_with_tools(http, &attempt).await
+                } else {
+                    providers::call_openai_with_tools(http, &attempt).await
+                };
+
+                match result {
+                    Ok(resp) => {
+                        let cost = estimate_provider_cost_usd(
+                            &attempt.provider,
+                            resp.prompt_tokens,
+                            resp.completion_tokens,
+                        );
+                        manager.record_success(&ctx.provider, cost).await;
+                        success = Some((resp, ctx.clone()));
+                        break;
+                    }
+                    Err(e) => {
+                        manager.record_failure(&ctx.provider).await;
+                        if !failover::should_failover(&e) {
+                            last_err = Some(e);
+                            break;
+                        }
+                        last_err = Some(e);
+                    }
+                }
+            }
+
+            match success {
+                Some((resp, ctx)) => (resp, Some(ctx)),
+                None => {
+                    let err = last_err
+                        .unwrap_or_else(|| anyhow!("All failover providers failed"));
+                    let frame = json!({
+                        "type": "error",
+                        "ok": false,
+                        "message": err.to_string(),
+                    });
+                    writer
+                        .send(Message::Text(frame.to_string().into()))
+                        .await
+                        .context("Failed to send error frame")?;
+                    return Ok(());
+                }
+            }
         } else {
-            providers::call_openai_with_tools(http, &resolved).await
+            let result = if resolved.provider == "anthropic" {
+                // Anthropic: use streaming mode with writer for real-time chunks
+                providers::call_anthropic_with_tools(http, &resolved, Some(writer)).await
+            } else if resolved.provider == "google" {
+                providers::call_google_with_tools(http, &resolved).await
+            } else {
+                providers::call_openai_with_tools(http, &resolved).await
+            };
+
+            let resp = match result {
+                Ok(r) => r,
+                Err(err) => {
+                    let frame = json!({
+                        "type": "error",
+                        "ok": false,
+                        "message": err.to_string(),
+                    });
+                    writer
+                        .send(Message::Text(frame.to_string().into()))
+                        .await
+                        .context("Failed to send error frame")?;
+                    return Ok(());
+                }
+            };
+            (resp, None)
         };
 
-        let model_resp = match result {
-            Ok(r) => r,
-            Err(err) => {
-                let frame = json!({
-                    "type": "error",
-                    "ok": false,
-                    "message": err.to_string(),
-                });
-                writer
-                    .send(Message::Text(frame.to_string().into()))
-                    .await
-                    .context("Failed to send error frame")?;
-                return Ok(());
-            }
-        };
+        if let Some(ctx) = selected_provider_ctx {
+            resolved.provider = ctx.provider;
+            resolved.model = ctx.model;
+            resolved.base_url = ctx.base_url;
+            resolved.api_key = ctx.api_key;
+        }
 
         // Stream any text content to the client.
         // For Anthropic, text is already streamed via the writer, so skip if empty.
@@ -1812,11 +2040,18 @@ async fn dispatch_text_message(
             model_resp.tool_calls.len()
         );
         if !model_resp.text.is_empty() && resolved.provider != "anthropic" {
+            let safe_text = match sanitize_outbound_text(&model_resp.text, config, writer).await {
+                Ok(t) => t,
+                Err(_) => {
+                    providers::send_response_done(writer).await?;
+                    return Ok(());
+                }
+            };
             eprintln!(
                 "[Gateway] Sending chunk to TUI: {} chars",
-                model_resp.text.len()
+                safe_text.len()
             );
-            providers::send_chunk(writer, &model_resp.text).await?;
+            providers::send_chunk(writer, &safe_text).await?;
         }
 
         // Check if the model is truly done or if something went wrong
@@ -1862,7 +2097,15 @@ async fn dispatch_text_message(
 
                     // Send the partial text to the client so they see it (with newline for visual separation)
                     if !model_resp.text.is_empty() && resolved.provider != "anthropic" {
-                        providers::send_chunk(writer, &format!("{}\n", model_resp.text)).await?;
+                        let safe_text =
+                            match sanitize_outbound_text(&model_resp.text, config, writer).await {
+                                Ok(t) => t,
+                                Err(_) => {
+                                    providers::send_response_done(writer).await?;
+                                    return Ok(());
+                                }
+                            };
+                        providers::send_chunk(writer, &format!("{}\n", safe_text)).await?;
                     }
 
                     // Append assistant message and continuation prompt
@@ -1879,6 +2122,17 @@ async fn dispatch_text_message(
                 }
 
                 // Model explicitly finished — we're done
+                let _ = writer
+                    .send(Message::Text(
+                        json!({
+                            "type": "agent_event",
+                            "event": "final_response",
+                            "finish_reason": finish_reason,
+                        })
+                        .to_string()
+                        .into(),
+                    ))
+                    .await;
                 providers::send_response_done(writer).await?;
                 return Ok(());
             } else if finish_reason == "length" {
@@ -1916,6 +2170,29 @@ async fn dispatch_text_message(
         let mut tool_results: Vec<ToolCallResult> = Vec::new();
 
         for tc in &model_resp.tool_calls {
+            let tool_started = Instant::now();
+            let _ = writer
+                .send(Message::Text(
+                    helpers::status_frame(
+                        "tool_running",
+                        &format!("Running tool '{}'", tc.name),
+                    )
+                    .into(),
+                ))
+                .await;
+            let _ = writer
+                .send(Message::Text(
+                    json!({
+                        "type": "agent_event",
+                        "event": "tool_start",
+                        "id": tc.id,
+                        "name": tc.name,
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await;
+
             // Notify the client about the tool call.
             let call_frame = json!({
                 "type": "tool_call",
@@ -2027,6 +2304,14 @@ async fn dispatch_text_message(
 
             // Sanitize the output (truncate large outputs, warn about garbage).
             let output = tools::sanitize_tool_output(output);
+            let output = match sanitize_outbound_text(&output, config, writer).await {
+                Ok(v) => v,
+                Err(_) => {
+                    providers::send_response_done(writer).await?;
+                    return Ok(());
+                }
+            };
+            let duration_ms = tool_started.elapsed().as_millis() as u64;
 
             // Notify the client about the result.
             let result_frame = json!({
@@ -2035,11 +2320,27 @@ async fn dispatch_text_message(
                 "name": tc.name,
                 "result": output,
                 "is_error": is_error,
+                "duration_ms": duration_ms,
             });
             writer
                 .send(Message::Text(result_frame.to_string().into()))
                 .await
                 .context("Failed to send tool_result frame")?;
+
+            let _ = writer
+                .send(Message::Text(
+                    json!({
+                        "type": "agent_event",
+                        "event": "tool_result",
+                        "id": tc.id,
+                        "name": tc.name,
+                        "status": if is_error { "error" } else { "success" },
+                        "duration_ms": duration_ms,
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await;
 
             tool_results.push(ToolCallResult {
                 id: tc.id.clone(),
@@ -2072,4 +2373,71 @@ async fn dispatch_text_message(
         .context("Failed to send error frame")?;
     providers::send_response_done(writer).await?;
     Ok(())
+}
+
+/// Estimate provider request cost in USD from token usage.
+///
+/// Uses conservative placeholder prices per 1K tokens so failover can
+/// maintain relative cost signals even when exact billing data is absent.
+fn estimate_provider_cost_usd(
+    provider: &str,
+    prompt_tokens: Option<u64>,
+    completion_tokens: Option<u64>,
+) -> f64 {
+    let in_tokens = prompt_tokens.unwrap_or(0) as f64;
+    let out_tokens = completion_tokens.unwrap_or(0) as f64;
+    let (in_per_1k, out_per_1k) = match provider {
+        "anthropic" => (0.003, 0.015),
+        "google" => (0.00125, 0.005),
+        "openai" | "openrouter" => (0.0025, 0.01),
+        _ => (0.002, 0.008),
+    };
+
+    (in_tokens / 1000.0) * in_per_1k + (out_tokens / 1000.0) * out_per_1k
+}
+
+/// Apply outbound leak/PII policy to model/tool outputs.
+async fn sanitize_outbound_text(
+    content: &str,
+    config: &Config,
+    writer: &mut WsWriter,
+) -> Result<String> {
+    use crate::security::{LeakDetector, PolicyAction};
+
+    let policy = config.safety.leak_detection_policy;
+    if matches!(policy, PolicyAction::Ignore) {
+        return Ok(content.to_string());
+    }
+
+    let detector = LeakDetector::new(config.safety.leak_sensitivity);
+    let scan = detector.scan(content);
+    if scan.safe {
+        return Ok(content.to_string());
+    }
+
+    match policy {
+        PolicyAction::Warn => {
+            let frame = json!({
+                "type": "status",
+                "status": "safety_warning",
+                "detail": format!(
+                    "Potential sensitive content detected in output ({})",
+                    scan.details.join(", ")
+                ),
+            });
+            let _ = writer.send(Message::Text(frame.to_string().into())).await;
+            Ok(content.to_string())
+        }
+        PolicyAction::Sanitize => Ok(detector.sanitize(content)),
+        PolicyAction::Block => {
+            let frame = json!({
+                "type": "error",
+                "ok": false,
+                "message": "Output blocked by leak/PII safety policy.",
+            });
+            let _ = writer.send(Message::Text(frame.to_string().into())).await;
+            Err(anyhow!("output blocked by safety policy"))
+        }
+        PolicyAction::Ignore => Ok(content.to_string()),
+    }
 }

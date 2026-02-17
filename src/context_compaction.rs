@@ -21,6 +21,7 @@
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::gateway::ChatMessage;
 
@@ -165,22 +166,13 @@ impl CompactionEngine {
                 (self.compact_sliding_window(messages)?, CompactionStrategy::SlidingWindow)
             }
             CompactionStrategy::Summarize => {
-                // TODO: Implement summarization strategy
-                // For now, fall back to sliding window
-                eprintln!("[compaction] Summarize strategy not yet implemented, using sliding window");
-                (self.compact_sliding_window(messages)?, CompactionStrategy::SlidingWindow)
+                (self.compact_summarize(messages)?, CompactionStrategy::Summarize)
             }
             CompactionStrategy::Importance => {
-                // TODO: Implement importance scoring strategy
-                // For now, fall back to sliding window
-                eprintln!("[compaction] Importance strategy not yet implemented, using sliding window");
-                (self.compact_sliding_window(messages)?, CompactionStrategy::SlidingWindow)
+                (self.compact_importance(messages)?, CompactionStrategy::Importance)
             }
             CompactionStrategy::Hybrid => {
-                // TODO: Implement hybrid strategy
-                // For now, fall back to sliding window
-                eprintln!("[compaction] Hybrid strategy not yet implemented, using sliding window");
-                (self.compact_sliding_window(messages)?, CompactionStrategy::SlidingWindow)
+                (self.compact_hybrid(messages)?, CompactionStrategy::Hybrid)
             }
         };
 
@@ -226,6 +218,36 @@ impl CompactionEngine {
         let recent_start = messages.len() - keep_recent;
         compacted.extend(messages.drain(recent_start..));
 
+        Ok(compacted)
+    }
+
+    /// Summarization-based compaction:
+    /// keep initial + recent messages and replace the middle section with
+    /// a generated summary block.
+    fn compact_summarize(&self, mut messages: Vec<ChatMessage>) -> Result<Vec<ChatMessage>> {
+        let total = messages.len();
+        let keep_initial = self.config.keep_initial.min(total);
+        let keep_recent = self.config.keep_recent.min(total);
+
+        if keep_initial + keep_recent >= total {
+            return Ok(messages);
+        }
+
+        let mut compacted: Vec<ChatMessage> = messages.drain(0..keep_initial).collect();
+        let middle_count = total - keep_initial - keep_recent;
+        let middle_messages: Vec<ChatMessage> = messages.drain(0..middle_count).collect();
+        let summary = self.summarize_messages(&middle_messages, 8);
+
+        compacted.push(ChatMessage {
+            role: "system".to_string(),
+            content: format!(
+                "[Context summary: {} earlier messages compacted]\n{}",
+                middle_count, summary
+            ),
+            ..Default::default()
+        });
+
+        compacted.extend(messages.into_iter());
         Ok(compacted)
     }
 
@@ -282,64 +304,166 @@ impl CompactionEngine {
     /// Importance-based compaction: score messages and keep high-value ones.
     fn compact_importance(&self, messages: Vec<ChatMessage>) -> Result<Vec<ChatMessage>> {
         let total = messages.len();
-        let target_count = self.config.max_messages * 2 / 3; // Keep ~67% after compaction
+        if total == 0 {
+            return Ok(Vec::new());
+        }
 
-        // Score all messages
-        let mut scored: Vec<(ChatMessage, f64)> = messages
-            .into_iter()
-            .map(|msg| {
-                let score = self.calculate_importance(&msg);
-                (msg, score)
-            })
+        let keep_initial = self.config.keep_initial.min(total);
+        let keep_recent = self.config.keep_recent.min(total.saturating_sub(keep_initial));
+        let recent_start = total.saturating_sub(keep_recent);
+        let target_count = self.config.max_messages.max(1) * 2 / 3; // Keep ~67%
+
+        let mut keep_indices: HashSet<usize> = HashSet::new();
+
+        for idx in 0..keep_initial {
+            keep_indices.insert(idx);
+        }
+        for idx in recent_start..total {
+            keep_indices.insert(idx);
+        }
+
+        let mut middle_scored: Vec<(usize, f64)> = (keep_initial..recent_start)
+            .map(|idx| (idx, self.calculate_importance(&messages[idx])))
             .collect();
+        middle_scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        // Always keep first and last few messages
-        let keep_edges = 3;
-        let mut compacted = Vec::new();
-
-        // Keep first few messages
-        for (msg, _) in scored.drain(0..keep_edges.min(scored.len())) {
-            compacted.push(msg);
-        }
-
-        if scored.is_empty() {
-            return Ok(compacted);
-        }
-
-        // Keep last few messages (extract from end)
-        let last_count = keep_edges.min(scored.len());
-        let last_messages: Vec<_> = scored.drain(scored.len() - last_count..).collect();
-
-        // Sort middle messages by importance
-        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Keep top N scored messages
-        let middle_target = target_count.saturating_sub(compacted.len() + last_count);
-        for (msg, score) in scored.into_iter().take(middle_target) {
+        let remaining_budget = target_count.saturating_sub(keep_indices.len());
+        for (idx, score) in middle_scored.into_iter().take(remaining_budget) {
             if score >= self.config.importance_threshold {
-                compacted.push(msg);
+                keep_indices.insert(idx);
             }
         }
 
-        // Add summary marker
-        let removed = total - compacted.len() - last_messages.len();
-        if removed > 0 {
+        let kept_count = keep_indices.len();
+        let removed = total.saturating_sub(kept_count);
+
+        let mut compacted = Vec::with_capacity(kept_count + usize::from(removed > 0));
+        let mut marker_inserted = false;
+
+        for (idx, msg) in messages.into_iter().enumerate() {
+            if keep_indices.contains(&idx) {
+                compacted.push(msg);
+            } else if !marker_inserted {
+                compacted.push(ChatMessage {
+                    role: "system".to_string(),
+                    content: format!(
+                        "[Context compacted: {} low-importance messages removed]",
+                        removed
+                    ),
+                    ..Default::default()
+                });
+                marker_inserted = true;
+            }
+        }
+
+        Ok(compacted)
+    }
+
+    /// Hybrid compaction:
+    /// keep initial/recent, retain highest-importance middle messages, and
+    /// summarize the rest of the middle context.
+    fn compact_hybrid(&self, messages: Vec<ChatMessage>) -> Result<Vec<ChatMessage>> {
+        let total = messages.len();
+        if total == 0 {
+            return Ok(Vec::new());
+        }
+
+        let keep_initial = self.config.keep_initial.min(total);
+        let keep_recent = self.config.keep_recent.min(total.saturating_sub(keep_initial));
+        let recent_start = total.saturating_sub(keep_recent);
+
+        if keep_initial + keep_recent >= total {
+            return Ok(messages);
+        }
+
+        let mut middle_scored: Vec<(usize, f64)> = (keep_initial..recent_start)
+            .map(|idx| (idx, self.calculate_importance(&messages[idx])))
+            .collect();
+        middle_scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let middle_keep_target = ((recent_start - keep_initial) / 4).max(1);
+        let middle_keep: HashSet<usize> = middle_scored
+            .into_iter()
+            .take(middle_keep_target)
+            .filter(|(_, score)| *score >= self.config.importance_threshold)
+            .map(|(idx, _)| idx)
+            .collect();
+
+        let mut omitted_middle = Vec::new();
+        let mut compacted = Vec::new();
+        let mut inserted_summary = false;
+
+        for (idx, msg) in messages.into_iter().enumerate() {
+            let in_initial = idx < keep_initial;
+            let in_recent = idx >= recent_start;
+            let keep_mid = middle_keep.contains(&idx);
+
+            if in_initial || in_recent || keep_mid {
+                if !inserted_summary && !omitted_middle.is_empty() {
+                    let summary = self.summarize_messages(&omitted_middle, 6);
+                    compacted.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: format!(
+                            "[Context summary: {} messages compacted in hybrid mode]\n{}",
+                            omitted_middle.len(),
+                            summary
+                        ),
+                        ..Default::default()
+                    });
+                    inserted_summary = true;
+                }
+                compacted.push(msg);
+            } else {
+                omitted_middle.push(msg);
+            }
+        }
+
+        if !omitted_middle.is_empty() && !inserted_summary {
+            let summary = self.summarize_messages(&omitted_middle, 6);
             compacted.push(ChatMessage {
                 role: "system".to_string(),
                 content: format!(
-                    "[Context compacted: {} low-importance messages removed]",
-                    removed
+                    "[Context summary: {} messages compacted in hybrid mode]\n{}",
+                    omitted_middle.len(),
+                    summary
                 ),
                 ..Default::default()
             });
         }
 
-        // Add last messages
-        for (msg, _) in last_messages {
-            compacted.push(msg);
+        Ok(compacted)
+    }
+
+    fn summarize_messages(&self, messages: &[ChatMessage], max_points: usize) -> String {
+        if messages.is_empty() {
+            return "- No significant context.".to_string();
         }
 
-        Ok(compacted)
+        let mut scored: Vec<(usize, f64)> = messages
+            .iter()
+            .enumerate()
+            .map(|(idx, msg)| (idx, self.calculate_importance(msg)))
+            .collect();
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut chosen: Vec<usize> = scored
+            .into_iter()
+            .take(max_points.max(1))
+            .map(|(idx, _)| idx)
+            .collect();
+        chosen.sort_unstable();
+
+        let mut lines = Vec::new();
+        for idx in chosen {
+            let msg = &messages[idx];
+            let mut snippet = msg.content.replace('\n', " ").trim().to_string();
+            if snippet.chars().count() > 140 {
+                snippet = snippet.chars().take(140).collect::<String>();
+                snippet.push_str("...");
+            }
+            lines.push(format!("- {}: {}", msg.role, snippet));
+        }
+        lines.join("\n")
     }
 }
 
@@ -459,5 +583,46 @@ mod tests {
         };
 
         assert_eq!(result.compression_ratio(), 0.75); // 75% compression
+    }
+
+    #[test]
+    fn test_summarize_strategy_used() {
+        let config = CompactionConfig {
+            enabled: true,
+            strategy: CompactionStrategy::Summarize,
+            max_messages: 6,
+            keep_initial: 1,
+            keep_recent: 2,
+            ..Default::default()
+        };
+        let engine = CompactionEngine::new(config);
+        let messages: Vec<_> = (0..10)
+            .map(|i| create_test_message("user", &format!("Message {}", i)))
+            .collect();
+
+        let (compacted, result) = engine.compact(messages).unwrap();
+        assert_eq!(result.strategy, CompactionStrategy::Summarize);
+        assert!(compacted.iter().any(|m| m.content.contains("Context summary")));
+    }
+
+    #[test]
+    fn test_hybrid_strategy_used() {
+        let config = CompactionConfig {
+            enabled: true,
+            strategy: CompactionStrategy::Hybrid,
+            max_messages: 8,
+            keep_initial: 1,
+            keep_recent: 2,
+            importance_threshold: 0.1,
+            ..Default::default()
+        };
+        let engine = CompactionEngine::new(config);
+        let messages: Vec<_> = (0..14)
+            .map(|i| create_test_message("user", &format!("Important message {}", i)))
+            .collect();
+
+        let (compacted, result) = engine.compact(messages).unwrap();
+        assert_eq!(result.strategy, CompactionStrategy::Hybrid);
+        assert!(compacted.len() < result.before);
     }
 }

@@ -159,6 +159,7 @@ mod webhook;
 mod console;
 mod discord;
 mod telegram;
+pub mod chunking;
 mod gmail;
 mod slack;
 mod whatsapp;
@@ -167,6 +168,8 @@ mod teams;
 mod mattermost;
 mod irc;
 mod xmpp;
+mod lark;
+mod line;
 
 pub use webhook::WebhookMessenger;
 pub use console::ConsoleMessenger;
@@ -180,6 +183,8 @@ pub use teams::{TeamsConfig, TeamsMessenger};
 pub use mattermost::{MattermostConfig, MattermostMessenger};
 pub use irc::{IrcConfig, IrcMessenger};
 pub use xmpp::{XmppConfig, XmppMessenger};
+pub use lark::{LarkConfig, LarkMessenger};
+pub use line::{LineConfig, LineMessenger};
 
 // ── Optional messengers (feature-gated) ─────────────────────────────────────
 
