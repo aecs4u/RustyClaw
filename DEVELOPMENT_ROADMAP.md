@@ -1,14 +1,14 @@
 # RustyClaw Development Roadmap
-## Issues #51-#94 Prioritization Analysis
+## Issues #51-#102 Prioritization Analysis
 
-**Generated**: 2026-02-16
+**Generated**: 2026-02-17 (updated)
 **Analysis Basis**: Implementation complexity, ecosystem reference availability, effort estimation
 
 ---
 
 ## Executive Summary
 
-This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 4 tiers based on:
+This roadmap analyzes 52 feature requests (#51-#102) and prioritizes them across 4 tiers based on:
 1. **Implementation Complexity**: Lines of code, dependencies, integration points, testing requirements
 2. **Reference Availability**: Number of ecosystem implementations (OpenClaw, AutoGPT, PicoClaw, Moltis, MicroClaw, Carapace)
 3. **Estimated Effort**: From issue descriptions (1-6 weeks)
@@ -16,16 +16,20 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 **Key Insight**: Issues with 3+ ecosystem references have proven implementations to learn from, reducing risk and accelerating development.
 
+**Progress**: 8 P0 features fully shipped, 1 P1 features fully shipped, multiple baselines landed.
+Skills system: 13 OpenClaude skills shipped and 8 new messenger channel integrations tracked (#95–#102).
+
 ---
 
 ## Priority Tier Distribution
 
-| Tier | Count | Description |
-|------|-------|-------------|
-| **P0 - Quick Wins** | 10 issues | 1-2 weeks, high impact, low complexity |
-| **P1 - High Value** | 12 issues | 2-3 weeks, critical features, medium complexity |
-| **P2 - Medium Complexity** | 14 issues | 3-4 weeks, valuable enhancements, higher integration needs |
-| **P3 - Advanced Features** | 8 issues | 4-6 weeks, complex systems, significant dependencies |
+| Tier | Count | Description | Shipped |
+|------|-------|-------------|---------|
+| **P0 - Quick Wins** | 10 issues | 1-2 weeks, high impact, low complexity | **8/10 ✅** |
+| **P1 - High Value** | 12 issues | 2-3 weeks, critical features, medium complexity | **1/12 ✅ + baselines** |
+| **P2 - Medium Complexity** | 14 issues | 3-4 weeks, valuable enhancements, higher integration needs | **baselines only** |
+| **P3 - Advanced Features** | 8 issues | 4-6 weeks, complex systems, significant dependencies | 0/8 |
+| **P2 - Messenger Channels** | 8 issues | 2-3 weeks each, new (#95–#102) | 0/8 |
 
 ---
 
@@ -34,7 +38,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ### Security & Reliability Quick Wins
 
-#### #52 - Unified Safety Layer Consolidation ⚡
+#### #52 - Unified Safety Layer Consolidation ✅ FULLY SHIPPED
 **Effort**: 1-2 weeks | **Complexity**: LOW | **References**: 0 (IronClaw inspired)
 **Why P0**: Critical security consolidation, existing code to refactor, clear architecture
 **LOC Estimate**: 400-600 lines
@@ -50,7 +54,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #86 - Secure Credential Memory (zeroize/secrecy) ⚡
+#### #86 - Secure Credential Memory (zeroize/secrecy) ✅ FULLY SHIPPED
 **Effort**: 1 week | **Complexity**: LOW | **References**: 2 (Moltis, Carapace)
 **Why P0**: Quick security win, well-understood pattern, minimal code changes
 **LOC Estimate**: 200-300 lines
@@ -66,7 +70,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #81 - Structured Retry/Backoff Engine ⚡
+#### #81 - Structured Retry/Backoff Engine ✅ FULLY SHIPPED
 **Effort**: 1-2 weeks | **Complexity**: LOW-MEDIUM | **References**: 3 (OpenClaw, Moltis, MicroClaw)
 **Why P0**: Improves reliability across all external APIs, reusable component
 **LOC Estimate**: 300-400 lines
@@ -83,7 +87,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #70 - CSRF Protection for Gateway ⚡
+#### #70 - CSRF Protection for Gateway ✅ FULLY SHIPPED
 **Effort**: 1 week | **Complexity**: LOW | **References**: 2 (Carapace, Moltis)
 **Why P0**: Security quick win, standard pattern, minimal code
 **LOC Estimate**: 150-200 lines
@@ -99,7 +103,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #83 - Config Validation with Unknown Field Detection ⚡
+#### #83 - Config Validation with Unknown Field Detection ✅ FULLY SHIPPED
 **Effort**: 1-2 weeks | **Complexity**: MEDIUM | **References**: 3 (Moltis, OpenClaw, PicoClaw)
 **Why P0**: Prevents silent failures, excellent UX, well-documented pattern
 **LOC Estimate**: 400-500 lines
@@ -115,7 +119,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #84 - Workspace Personality Files (SOUL.md, IDENTITY.md, USER.md) ⚡
+#### #84 - Workspace Personality Files (SOUL.md, IDENTITY.md, USER.md) ✅ FULLY SHIPPED
 **Effort**: 1 week | **Complexity**: LOW | **References**: 3 (PicoClaw, MicroClaw, Moltis)
 **Why P0**: Simple file loading, high user value, clear pattern
 **LOC Estimate**: 200-250 lines
@@ -131,7 +135,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #85 - DuckDuckGo Fallback for web_search ⚡
+#### #85 - DuckDuckGo Fallback for web_search ✅ FULLY SHIPPED
 **Effort**: 1 week | **Complexity**: LOW | **References**: 3 (PicoClaw, Moltis, OpenClaw)
 **Why P0**: Zero-config search, excellent UX, simple HTML parsing
 **LOC Estimate**: 250-300 lines
@@ -147,7 +151,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #63 - Heartbeat System for Proactive Monitoring ⚡
+#### #63 - Heartbeat System for Proactive Monitoring ✅ FULLY SHIPPED
 **Effort**: 1 week | **Complexity**: LOW | **References**: 0 (IronClaw inspired)
 **Why P0**: Simple cron-like feature, low complexity, high value for monitoring
 **LOC Estimate**: 200-250 lines
@@ -179,7 +183,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #51 - Multi-provider LLM Failover
+#### #51 - Multi-provider LLM Failover ✅ SHIPPED (open: full cost-per-provider tracking)
 **Effort**: 1-2 weeks | **Complexity**: MEDIUM | **References**: 0 (IronClaw inspired)
 **Why P0**: Critical reliability feature, builds on #81 retry engine
 **LOC Estimate**: 400-500 lines
@@ -193,6 +197,12 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 4. Track cost per provider used
 5. Add configuration via `[[llm.failover]]` array
 
+**Baseline implementation now available**:
+- Runtime failover execution in gateway tool loop
+- Strategy-aware provider selection (priority/round-robin/cost-optimized)
+- Retryable/fatal classification for provider switch decisions
+- Basic token-based cost estimation for failover cost tracking
+
 ---
 
 ## P1: High Value Features (2-3 weeks each)
@@ -200,7 +210,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ### Enhanced LLM & Memory
 
-#### #53 - Context Compaction for Long Conversations
+#### #53 - Context Compaction for Long Conversations ✅ SHIPPED (open: streaming compaction)
 **Effort**: 1-2 weeks | **Complexity**: MEDIUM | **References**: 0 (IronClaw inspired)
 **LOC Estimate**: 600-800 lines
 **Dependencies**: Uses existing LLM provider
@@ -211,6 +221,11 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 - SlidingWindow: Keep first N + last N messages
 - Importance: Score messages by semantic relevance
 - Hybrid: Combine strategies
+
+**Baseline implementation now available**:
+- All four strategies are implemented and configurable
+- Summarize/Hybrid generate deterministic context summaries without extra API calls
+- Importance-based retention now preserves chronological ordering
 
 ---
 
@@ -300,7 +315,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #69 - Per-IP Rate Limiting with Token Bucket
+#### #69 - Per-IP Rate Limiting with Token Bucket ✅ BASELINE SHIPPED
 **Effort**: 1-2 weeks | **Complexity**: MEDIUM | **References**: 3 (Carapace, Moltis, MicroClaw)
 **LOC Estimate**: 400-500 lines
 **Dependencies**: None
@@ -312,9 +327,14 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 - HTTP 429 + Retry-After header
 - Per-route limits (stricter for auth endpoints)
 
+**Baseline implementation now available**:
+- Per-IP token bucket limiting for gateway message processing
+- Configurable `[rate_limit]` table (`capacity`, `refill_per_sec`, `control_cost`)
+- Explicit `rate_limited` responses with retry timing
+
 ---
 
-#### #71 - PII Redaction and Output Sanitizer
+#### #71 - PII Redaction and Output Sanitizer ✅ BASELINE SHIPPED
 **Effort**: 2-3 weeks | **Complexity**: MEDIUM-HIGH | **References**: 2 (Carapace, Moltis)
 **LOC Estimate**: 600-700 lines
 **Dependencies**: Regex patterns
@@ -328,6 +348,11 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 - API keys, tokens, passwords
 - XSS prevention (dangerous HTML)
 - Data URI stripping
+
+**Baseline implementation now available**:
+- Outbound leak/PII scanning for gateway responses and tool outputs
+- Policy actions supported: ignore, warn, sanitize, block
+- Sanitization/redaction applied when policy is `sanitize`
 
 ---
 
@@ -350,7 +375,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ### Infrastructure
 
-#### #82 - Per-channel Message Chunking and Delivery Queue
+#### #82 - Per-channel Message Chunking and Delivery Queue ✅ BASELINE SHIPPED
 **Effort**: 2-3 weeks | **Complexity**: MEDIUM-HIGH | **References**: 3 (MicroClaw, OpenClaw, Moltis)
 **LOC Estimate**: 600-800 lines
 **Dependencies**: None
@@ -367,6 +392,11 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 - Retry with exponential backoff
 - Per-channel concurrency limits
 - Dead letter queue for failed messages
+
+**Current baseline shipped**:
+- Per-channel chunking with platform-specific limits
+- Ordered chunk delivery with bounded inter-chunk delay
+- Chunking applied to regular messenger responses (not only pairing/system replies)
 
 ---
 
@@ -385,7 +415,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #55 - Routines Engine for Automated Tasks
+#### #55 - Routines Engine for Automated Tasks ✅ FULLY SHIPPED
 **Effort**: 2-3 weeks | **Complexity**: MEDIUM-HIGH | **References**: 0 (IronClaw inspired)
 **LOC Estimate**: 700-900 lines
 **Dependencies**: None (uses existing scheduler primitives)
@@ -393,9 +423,15 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 **Trigger Types**:
 - Cron: Time-based scheduling
-- Event: File changes, system events
+- Event: Regex pattern matching on agent responses/tool outputs
 - Webhook: HTTP POST triggers
 - Manual: User-initiated
+
+**Shipped**:
+- `src/routines/` — store (SQLite), cron_scheduler, event_matcher, engine
+- `RoutineExecutor` async trait for pluggable AI prompt execution
+- Guardrails: max_failures auto-disable, cooldown_secs anti-spam
+- 32 passing tests across all modules
 
 ---
 
@@ -419,7 +455,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #68 - Structured JSONL Audit Logging
+#### #68 - Structured JSONL Audit Logging ✅ CORE SHIPPED
 **Effort**: 2-3 weeks | **Complexity**: MEDIUM | **References**: 3 (Carapace, Moltis, MicroClaw)
 **LOC Estimate**: 500-700 lines
 **Dependencies**: None
@@ -434,7 +470,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #87 - Agent Event Streaming
+#### #87 - Agent Event Streaming ✅ BASELINE SHIPPED
 **Effort**: 2-3 weeks | **Complexity**: MEDIUM | **References**: 2 (MicroClaw, OpenClaw)
 **LOC Estimate**: 600-700 lines
 **Dependencies**: None
@@ -451,6 +487,10 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 - TUI with event display
 - Web UI via SSE
 - External integrations
+
+**Baseline implementation now available**:
+- Structured `agent_event` frames emitted for iterations, tool start/result, and final response
+- Tool result events include status and duration
 
 ---
 
@@ -487,7 +527,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #79 - Feishu/Lark Messenger Integration
+#### #79 - Feishu/Lark Messenger Integration ✅ SHIPPED
 **Effort**: 2-3 weeks | **Complexity**: MEDIUM | **References**: 2 (MicroClaw, PicoClaw)
 **LOC Estimate**: 600-800 lines
 **Dependencies**: Feishu API client
@@ -502,7 +542,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #80 - LINE Messenger Integration
+#### #80 - LINE Messenger Integration ✅ SHIPPED
 **Effort**: 2-3 weeks | **Complexity**: MEDIUM | **References**: 2 (PicoClaw, OpenClaw)
 **LOC Estimate**: 500-600 lines
 **Dependencies**: LINE Messaging API
@@ -518,7 +558,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ### Infrastructure & DevEx
 
-#### #75 - Session Archiving with Retention Policies
+#### #75 - Session Archiving with Retention Policies ✅ CORE SHIPPED
 **Effort**: 2-3 weeks | **Complexity**: MEDIUM | **References**: 3 (Carapace, MicroClaw, Moltis)
 **LOC Estimate**: 600-700 lines
 **Dependencies**: None
@@ -533,10 +573,10 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #77 - mDNS Service Discovery
+#### #77 - mDNS Service Discovery ✅ BASELINE SHIPPED
 **Effort**: 2-3 weeks | **Complexity**: MEDIUM | **References**: 2 (Carapace, OpenClaw)
 **LOC Estimate**: 500-600 lines
-**Dependencies**: `mdns-sd = "0.7"`
+**Dependencies**: none (uses system mDNS tooling where available)
 **Priority Justification**: Zero-config local network pairing
 
 **Features**:
@@ -545,6 +585,11 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 - Service type: `_rustyclaw._tcp.local.`
 - Three modes: off/minimal/full
 - Device pairing and multi-node setup
+
+**Baseline implementation now available**:
+- Gateway advertises `_rustyclaw._tcp` service on startup
+- Uses `avahi-publish-service` (Linux) or `dns-sd` (macOS)
+- Runtime config via `[mdns]` (`enabled`, `mode`, `service_name`, `service_type`)
 
 ---
 
@@ -578,7 +623,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #54 - Local Embeddings for Privacy-Preserving Search
+#### #54 - Local Embeddings for Privacy-Preserving Search ✅ SHIPPED (open: HNSW index)
 **Effort**: 1-2 weeks | **Complexity**: MEDIUM | **References**: 0 (IronClaw inspired)
 **LOC Estimate**: 400-600 lines
 **Dependencies**: `fastembed-rs`
@@ -671,7 +716,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #88 - Webhook Trigger System
+#### #88 - Webhook Trigger System ✅ BASELINE SHIPPED
 **Effort**: 3-4 weeks | **Complexity**: HIGH | **References**: 2 (AutoGPT, Carapace)
 **LOC Estimate**: 800-1000 lines
 **Dependencies**: None
@@ -683,6 +728,11 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 - HMAC-SHA256 signature verification
 - Retry-on-failure semantics
 - Webhook secret management
+
+**Baseline implementation now available**:
+- Gateway webhook endpoint (`[webhook_triggers]`) with JSON payload ingestion
+- Payload context is injected into the model prompt
+- Shared-secret header auth via `X-Webhook-Secret`
 
 ---
 
@@ -718,7 +768,7 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-#### #92 - Activity Status Generation
+#### #92 - Activity Status Generation ✅ BASELINE SHIPPED
 **Effort**: 2-3 weeks | **Complexity**: MEDIUM | **References**: 2 (AutoGPT, OpenClaw)
 **LOC Estimate**: 500-600 lines
 **Dependencies**: None
@@ -734,6 +784,10 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 - Status string per tool/block
 - Real-time streaming to UI
 - Progress percentage when applicable
+
+**Baseline implementation now available**:
+- Gateway emits live status updates for thinking/tool execution/safety warnings
+- Status frames complement event frames for UI progress visibility
 
 ---
 
@@ -777,30 +831,134 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 
 ---
 
-## Recommended Implementation Order
+---
 
-### Phase 1: Foundation (Weeks 1-8)
-**Goal**: Security, reliability, and developer experience basics
+## Skills System — Shipped
 
-1. **#86** - Secure credential memory (1 week)
-2. **#81** - Retry/backoff engine (1-2 weeks)
-3. **#52** - Unified Safety Layer (1-2 weeks)
-4. **#83** - Config validation (1-2 weeks)
-5. **#84** - Workspace personality files (1 week)
-6. **#85** - DuckDuckGo fallback (1 week)
+### OpenClaude Skills Download & Sharing ✅ FULLY SHIPPED
+**Delivered**: 2026-02-17
 
-**Deliverable**: Secure, reliable core with great UX
+13 OpenClaude skills implemented (`skills/` directory) covering all `[SKILL]` issues (#37–#49 on aecs4u/RustyClaw):
+
+| Skill | Schedule | Phase |
+|-------|----------|-------|
+| `crm-daily-sync` | cron 06:00 daily | 2 |
+| `crm-search` | on-demand | 2 |
+| `daily-meeting-prep` | cron 07:00 daily | 2 |
+| `knowledge-base-add` | on-demand | 2 |
+| `knowledge-base-search` | on-demand | 2 |
+| `hourly-code-backup` | cron hourly | 2 |
+| `hourly-db-backup` | cron hourly +30m | 2 |
+| `daily-health-check` | cron 08:00 daily | 2 |
+| `twitter-search` | on-demand | 3 |
+| `video-idea-pipeline` | on-demand | 3 |
+| `business-council` | cron 09:00 weekdays | 4 |
+| `weekly-memory-synthesis` | cron Sunday 22:00 | 4 |
+| `daily-markdown-validation` | cron 03:00 daily | 4 |
+
+### Skills CLI & Registry Enhancement ✅ FULLY SHIPPED
+**Delivered**: 2026-02-17
+
+- `rustyclaw skills search/install/publish/remove/update/create` — full CLI
+- `skill_publish`, `skill_remove`, `skill_update` gateway tools
+- Version extraction from frontmatter in publish flow
+- `update_skill()` with registry version check and re-install
+- `create_skill()` scaffolds SKILL.md template
+- Fixed all `clawhub.com` → `clawhub.ai` and npm references
 
 ---
 
-### Phase 2: Reliability & Messaging (Weeks 9-14)
+## P2: New Messenger Channels (#95–#102)
+*8 additional integrations added 2026-02-17 — estimated 2-3 weeks each*
+
+### ⚡ Quick-to-implement (existing adapter pattern)
+
+#### #95 - BlueBubbles/iMessage Integration
+**Effort**: 2-3 weeks | **Complexity**: MEDIUM | **Platform**: macOS only (BlueBubbles server)
+**Why P2**: Apple ecosystem; requires BlueBubbles self-hosted server as bridge.
+**Implementation**: REST API to local BlueBubbles server; webhook for incoming; attachment support.
+
+---
+
+#### #96 - Nextcloud Talk Integration
+**Effort**: 2 weeks | **Complexity**: LOW-MEDIUM | **Platform**: Self-hosted
+**Why P2**: Popular open-source team chat for privacy-conscious deployments.
+**Implementation**: Nextcloud Talk REST API; polling or Signaling API for push; Markdown rendering.
+
+---
+
+#### #97 - Nostr Integration
+**Effort**: 2-3 weeks | **Complexity**: MEDIUM | **Platform**: Decentralised
+**Why P2**: Censorship-resistant protocol; growing developer/privacy community.
+**Implementation**: WebSocket relay connections; NIP-01 event handling; NIP-04 encrypted DMs; key management via vault.
+
+---
+
+#### #98 - Urbit/Tlon Integration
+**Effort**: 3-4 weeks | **Complexity**: HIGH | **Platform**: Urbit network
+**Why P2**: Niche but technically interesting; Urbit Airlock HTTP API bridges to Hoon.
+**Implementation**: Airlock WebSocket connection; scry/poke interface; ship identity management.
+
+---
+
+#### #99 - Twitch Chat Integration
+**Effort**: 1-2 weeks | **Complexity**: LOW | **Platform**: Twitch IRC/EventSub
+**Why P2**: Large streamer community; natural fit for live assistant bots.
+**Implementation**: IRC over WebSocket (TMI); EventSub for channel points/subs; rate limiting per Twitch ToS.
+
+---
+
+#### #100 - Zalo Integration
+**Effort**: 2-3 weeks | **Complexity**: MEDIUM | **Platform**: Vietnam market
+**Why P2**: Dominant messaging app in Vietnam; REST + webhook API model similar to LINE.
+**Implementation**: Zalo Official Account API; webhook verification; text/image/sticker support.
+
+---
+
+#### #101 - Zalo Personal Integration
+**Effort**: 2-3 weeks | **Complexity**: MEDIUM-HIGH | **Platform**: Vietnam market
+**Why P2**: Personal Zalo accounts (unofficial API); higher fragility than OA API.
+**Implementation**: Unofficial Zapi or similar bridge; session management; fallback to OA API (#100).
+
+---
+
+#### #102 - WeChat Integration
+**Effort**: 3-4 weeks | **Complexity**: HIGH | **Platform**: China + global
+**Why P2**: Largest messaging platform globally; requires Official Account registration.
+**Implementation**: WeChat Official Account API (subscription/service account); XML message format; media upload for rich messages; China CDN considerations.
+
+---
+
+## Recommended Implementation Order
+
+### Phase 1: Foundation ✅ COMPLETE
+**Goal**: Security, reliability, and developer experience basics
+
+1. **#86** - Secure credential memory ✅ SHIPPED
+2. **#81** - Retry/backoff engine ✅ SHIPPED
+3. **#52** - Unified Safety Layer ✅ SHIPPED
+4. **#83** - Config validation ✅ SHIPPED
+5. **#84** - Workspace personality files ✅ SHIPPED
+6. **#85** - DuckDuckGo fallback ✅ SHIPPED
+7. **#54** - Local embeddings ✅ SHIPPED
+8. **#53** - Context compaction ✅ SHIPPED
+9. **#55** - Routines engine ✅ SHIPPED
+10. Skills system: 13 skills + CLI/registry ✅ SHIPPED
+
+**Deliverable**: Secure, reliable core with great UX — **DELIVERED**
+
+---
+
+### Phase 2: Reliability & Messaging (Current Focus)
 **Goal**: Production-ready gateway and messaging
 
-1. **#51** - Multi-provider failover (1-2 weeks)
-2. **#73** - Gateway lifecycle management (1-2 weeks)
-3. **#70** - CSRF protection (1 week)
-4. **#69** - Per-IP rate limiting (1-2 weeks)
-5. **#82** - Message chunking/delivery queue (2-3 weeks)
+1. **#51** - Multi-provider failover ✅ SHIPPED (full cost tracking pending)
+2. **#70** - CSRF protection ✅ SHIPPED
+3. **#81** - Retry/backoff engine ✅ SHIPPED
+4. **#63** - Heartbeat system ✅ SHIPPED
+5. **#69** - Per-IP rate limiting ✅ BASELINE (persistent store + burst pending)
+6. **#82** - Message chunking/delivery queue ✅ BASELINE (persistent queue pending)
+7. **#73** - Gateway lifecycle management (next up)
 
 **Deliverable**: Production-ready gateway with reliable messaging
 
@@ -809,11 +967,11 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 ### Phase 3: Advanced Agent Capabilities (Weeks 15-22)
 **Goal**: Powerful agent features and memory
 
-1. **#53** - Context compaction (1-2 weeks)
-2. **#76** - Structured memory with reflector (2-3 weeks)
-3. **#66** - Sub-agent spawning (2-3 weeks)
-4. **#78** - Lifecycle hook system (2-3 weeks)
-5. **#63** - Heartbeat system (1 week)
+1. **#53** - Context compaction ✅ SHIPPED
+2. **#55** - Routines engine ✅ SHIPPED
+3. **#76** - Structured memory with reflector (next up)
+4. **#66** - Sub-agent spawning (2-3 weeks)
+5. **#78** - Lifecycle hook system (2-3 weeks)
 
 **Deliverable**: Long-running, intelligent agents with delegation
 
@@ -875,15 +1033,31 @@ This roadmap analyzes 44 feature requests (#51-#94) and prioritizes them across 
 ### Phase 8: Advanced Features (Weeks 50+)
 **Goal**: Cutting-edge capabilities
 
-1. **#92** - Activity status generation (2-3 weeks)
+1. **#92** - Activity status generation ✅ BASELINE (2-3 weeks for full completion)
 2. **#93** - Nested agent composition (4-5 weeks)
 3. **#60** - Meeting intelligence (4-5 weeks)
 4. **#91** - ClamAV scanning (2-3 weeks)
 5. **#94** - Multi-provider OAuth (4-6 weeks)
-6. **#79** - Feishu/Lark integration (2-3 weeks)
-7. **#80** - LINE integration (2-3 weeks)
+6. **#79** - Feishu/Lark integration ✅ SHIPPED
+7. **#80** - LINE integration ✅ SHIPPED
 
 **Deliverable**: Industry-leading agent platform
+
+---
+
+### Phase 9: Messenger Channel Expansion (Parallel track)
+**Goal**: Extend reach to additional platforms
+
+1. **#99** - Twitch chat (1-2 weeks — simplest)
+2. **#96** - Nextcloud Talk (2 weeks)
+3. **#95** - BlueBubbles/iMessage (2-3 weeks)
+4. **#100** - Zalo OA (2-3 weeks)
+5. **#97** - Nostr (2-3 weeks)
+6. **#101** - Zalo Personal (2-3 weeks)
+7. **#102** - WeChat OA (3-4 weeks)
+8. **#98** - Urbit/Tlon (3-4 weeks — most complex)
+
+**Deliverable**: Near-universal messaging platform coverage
 
 ---
 
@@ -982,11 +1156,13 @@ Independent features can be developed in parallel:
 - Gateway track: #73 → #65 → #88 → #89
 
 ### 6. Estimated Timeline
-- **Phase 1-2** (Foundation + Reliability): 14 weeks
+- **Phase 1** (Foundation): ✅ COMPLETE (~10 weeks actual)
+- **Phase 2** (Reliability): In progress (~4 weeks remaining)
 - **Phase 3-4** (Agent Capabilities + Security): 16 weeks
 - **Phase 5-6** (Ecosystem + Infrastructure): 20 weeks
 - **Phase 7-8** (Enterprise + Advanced): 16+ weeks
-- **Total**: ~66 weeks (~15 months) for full roadmap
+- **Phase 9** (Messenger Channels, parallel): ~20 weeks
+- **Remaining**: ~76 weeks (~17 months) for full roadmap
 
 ### 7. Quick Win Strategy
 Focusing on P0 issues (10 features, ~10-14 weeks) delivers:
@@ -1109,4 +1285,5 @@ This roadmap prioritizes velocity through strategic sequencing:
 
 **Recommended Start**: Begin with #86 (secure credentials) → #81 (retry engine) → #52 (safety layer) → #83 (config validation) for maximum early impact.
 
-**Estimated Full Completion**: ~15 months with parallel tracks, or ~20 months linear development.
+**Estimated Full Completion**: ~17 months with parallel tracks, or ~22 months linear development.
+**Phase 1 complete** — 10 features shipped including foundation, routines, skills, and local embeddings.
